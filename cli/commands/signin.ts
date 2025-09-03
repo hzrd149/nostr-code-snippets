@@ -1,18 +1,14 @@
-import { Command } from "commander";
-import {
-  SimpleSigner,
-  NostrConnectSigner,
-  type ISigner,
-} from "applesauce-signers";
-import inquirer from "inquirer";
-import * as qrcode from "qrcode-terminal";
 import { encodeNbunksec } from "@sandwichfarm/encoded-entities";
-import { bytesToHex } from "nostr-tools/utils";
+import { NostrConnectSigner, SimpleSigner } from "applesauce-signers";
+import { Command } from "commander";
+import inquirer from "inquirer";
 import { nsecEncode } from "nostr-tools/nip19";
-import { setSignerInstance, setSignerInConfig } from "../../helpers/signer.js";
+import { bytesToHex } from "nostr-tools/utils";
+import * as qrcode from "qrcode-terminal";
+import { logger } from "../../helpers/debug.js";
+import { setSignerInConfig, setSignerInstance } from "../../helpers/signer.js";
 import type { BaseCommand } from "../types.js";
 import { loadConfig, saveConfig } from "../utils.js";
-import { logger } from "../../helpers/debug.js";
 
 const log = logger.extend("signin");
 

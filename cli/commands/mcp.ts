@@ -1,9 +1,9 @@
-import { Command } from "commander";
-import type { BaseCommand } from "../types.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { Command } from "commander";
 import { z } from "zod";
 import { logger } from "../../helpers/debug.js";
+import type { BaseCommand } from "../types.js";
 
 export class McpCommand implements BaseCommand {
   name = "mcp";

@@ -1,7 +1,7 @@
 import { Command } from "commander";
-import type { BaseCommand } from "../types.js";
-import { readCodeFile, loadConfig } from "../utils.js";
 import { logger } from "../../helpers/debug.js";
+import type { BaseCommand } from "../types.js";
+import { loadConfig, readCodeFile } from "../utils.js";
 
 export class PublishCommand implements BaseCommand {
   name = "publish";

@@ -1,7 +1,7 @@
 import { Command } from "commander";
-import type { BaseCommand } from "../types.js";
-import { loadConfig, formatSnippetForDisplay } from "../utils.js";
 import { logger } from "../../helpers/debug.js";
+import type { BaseCommand } from "../types.js";
+import { formatSnippetForDisplay, loadConfig } from "../utils.js";
 
 export class SearchCommand implements BaseCommand {
   name = "search";
