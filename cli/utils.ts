@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import type { NostrConfig } from "./types.js";
+import { logger } from "../helpers/debug.js";
 
 export function loadConfig(): NostrConfig {
   const configPath = join(process.cwd(), ".nostr-snippets.json");

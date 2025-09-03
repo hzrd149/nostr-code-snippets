@@ -7,7 +7,7 @@ export interface BaseCommand {
 }
 
 export interface NostrConfig {
-  privateKey?: string;
+  signer?: string;
   pubkey?: string;
   relays: string[];
 }

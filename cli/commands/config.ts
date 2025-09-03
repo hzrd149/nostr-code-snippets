@@ -1,7 +1,8 @@
+import { Helpers } from "applesauce-core";
 import { Command } from "commander";
+import { setSignerInConfig } from "../../helpers/signer.js";
 import type { BaseCommand, NostrConfig } from "../types.js";
 import { loadConfig, saveConfig } from "../utils.js";
-import { Helpers } from "applesauce-core";
 
 export class ConfigCommand implements BaseCommand {
   name = "config";
@@ -13,7 +14,10 @@ export class ConfigCommand implements BaseCommand {
       .description(this.description)
       .option("--show", "Show current configuration")
       .option("--reset", "Reset configuration to defaults")
-      .option("--private-key <key>", "Set your private key (hex format)")
+      .option(
+        "--signer <signer>",
+        "Set your signer (NIP-19 nsec or nbunksec format) - automatically sets pubkey",
+      )
       .option(
         "--pubkey <key>",
         "Set your public key (hex, npub, or nprofile format)",
@@ -47,15 +51,17 @@ export class ConfigCommand implements BaseCommand {
 
       let configChanged = false;
 
-      // Private key configuration
-      if (options.privateKey) {
-        if (this.validatePrivateKey(options.privateKey)) {
-          config.privateKey = options.privateKey;
+      // Signer configuration
+      if (options.signer) {
+        try {
+          await setSignerInConfig(options.signer);
+          config = loadConfig(); // Reload config after signer update
           configChanged = true;
-          console.log("🔑 Private key updated");
-        } else {
+          console.log("🔑 Signer and public key updated");
+        } catch (error) {
           console.error(
-            "❌ Invalid private key format. Please provide a valid hex private key.",
+            "❌ Failed to set signer:",
+            error instanceof Error ? error.message : error,
           );
           process.exit(1);
         }
@@ -141,9 +147,7 @@ export class ConfigCommand implements BaseCommand {
     console.log("\n⚙️  Current Configuration:");
     console.log("─".repeat(40));
 
-    console.log(
-      `🔑 Private Key: ${config.privateKey ? "***configured***" : "Not set"}`,
-    );
+    console.log(`🔑 Signer: ${config.signer ? "***configured***" : "Not set"}`);
     console.log(`🆔 Public Key: ${config.pubkey ? config.pubkey : "Not set"}`);
     console.log(`📡 Relays (${config.relays.length}):`);
     config.relays.forEach((relay) => {
@@ -152,7 +156,7 @@ export class ConfigCommand implements BaseCommand {
 
     console.log("\n💡 Tips:");
     console.log(
-      "   • Generate a private key: nostr-code-snippets config --generate-key",
+      "   • Set a signer: nostr-code-snippets config --signer <nsec_or_nbunksec>",
     );
     console.log("   • Add more relays for better discovery");
   }
@@ -171,9 +175,11 @@ export class ConfigCommand implements BaseCommand {
 
     console.log("\n📖 Configuration Help:");
     console.log("Use the following commands to configure your settings:");
-    console.log("  --private-key <key>     Set your private key");
     console.log(
-      "  --pubkey <key>          Set your public key (hex, npub, or nprofile)",
+      "  --signer <signer>       Set your signer (nsec or nbunksec) - auto-sets pubkey",
+    );
+    console.log(
+      "  --pubkey <key>          Set your public key manually (hex, npub, or nprofile)",
     );
     console.log("  --add-relay <url>       Add a relay");
     console.log("  --show                  Show current config");
@@ -191,11 +197,6 @@ export class ConfigCommand implements BaseCommand {
         "wss://relay.nostr.band",
       ],
     };
-  }
-
-  private validatePrivateKey(key: string): boolean {
-    // Basic validation for hex private key (64 characters)
-    return /^[a-fA-F0-9]{64}$/.test(key);
   }
 
   private validateRelayUrl(url: string): boolean {

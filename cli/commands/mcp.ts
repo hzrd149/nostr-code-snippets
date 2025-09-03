@@ -150,34 +150,6 @@ export class McpCommand implements BaseCommand {
       },
     );
 
-    server.tool(
-      "configure_nostr",
-      "Configure Nostr settings for the MCP server",
-      {
-        privateKey: z.string().optional().describe("Private key in hex format"),
-        pubkey: z
-          .string()
-          .optional()
-          .describe("Public key (hex, npub, or nprofile format)"),
-        relays: z.array(z.string()).optional().describe("List of relay URLs"),
-      },
-      async ({ privateKey, pubkey, relays }) => {
-        if (verbose) {
-          logger("⚙️ MCP: Updating configuration");
-        }
-
-        // TODO: Implement configuration logic
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Configuration updated successfully (implementation pending)",
-            },
-          ],
-        };
-      },
-    );
-
     if (verbose) {
       logger("✅ MCP tools registered successfully");
     }
