@@ -88,6 +88,22 @@ export async function setSignerInConfig(signerValue: string): Promise<void> {
   }
 }
 
+/**
+ * Sets the signer instance directly without recreating it
+ */
+export function setSignerInstance(signer: ISigner): void {
+  signerInstance = signer;
+  log(`🔑 Signer instance set directly`);
+}
+
+/**
+ * Clears the current signer instance
+ */
+export function clearSignerInstance(): void {
+  signerInstance = null;
+  log(`🔑 Signer instance cleared`);
+}
+
 async function createSignerInstance(): Promise<ISigner> {
   // Check environment variable first, then config file
   const signerValue = process.env.SIGNER || getConfigSigner();

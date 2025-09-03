@@ -4,6 +4,7 @@ import { ListCommand } from "./commands/list.js";
 import { SearchCommand } from "./commands/search.js";
 import { ConfigCommand } from "./commands/config.js";
 import { McpCommand } from "./commands/mcp.js";
+import { SigninCommand } from "./commands/signin.js";
 import { enableDebugLogging } from "../helpers/debug.js";
 
 export function createCliProgram(): Command {
@@ -21,6 +22,7 @@ export function createCliProgram(): Command {
 
   // Initialize and register commands
   const commands = [
+    new SigninCommand(),
     new PublishCommand(),
     new ListCommand(),
     new SearchCommand(),
@@ -36,6 +38,8 @@ export function createCliProgram(): Command {
   program.on("--help", () => {
     console.log("");
     console.log("Examples:");
+    console.log("  $ nostr-code-snippets signin");
+    console.log("  $ nostr-code-snippets signin nsec1...");
     console.log(
       '  $ nostr-code-snippets publish ./my-script.js --title "Useful Script"',
     );
