@@ -1,0 +1,37 @@
+{
+  "name": "nostr-code-snippets",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "nostr-code-snippets": "index.ts"
+  },
+  "scripts": {
+    "start": "bun run index.ts",
+    "mcp": "bun run index.ts mcp",
+    "dev": "mcp-inspector bun run index.ts mcp",
+    "build": "bun build index.ts --outdir ./dist --target bun",
+    "help": "bun run index.ts --help"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/inspector": "^0.16.5",
+    "@types/bun": "latest",
+    "@types/debug": "^4.1.12",
+    "prettier": "^3.6.2"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "applesauce-accounts": "^3.1.0",
+    "applesauce-core": "^3.1.0",
+    "applesauce-relay": "^3.1.0",
+    "applesauce-signers": "^3.1.0",
+    "commander": "^14.0.0",
+    "debug": "^4.4.1",
+    "nostr-tools": "^2.16.2",
+    "rxjs": "^7.8.2",
+    "zod": "^4.1.5"
+  }
+}
