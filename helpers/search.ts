@@ -5,6 +5,7 @@ import {
 } from "applesauce-core";
 import { nip19, type Filter, type NostrEvent } from "nostr-tools";
 import { endWith, firstValueFrom, lastValueFrom, startWith } from "rxjs";
+import { Index } from "flexsearch";
 import { DEFAULT_SEARCH_RELAYS } from "./const.js";
 import { logger } from "./debug.js";
 import { eventStore, getReadRelays, pool } from "./nostr.js";
@@ -14,6 +15,7 @@ import {
   mergeRelaySets,
   normalizeToPubkey,
 } from "applesauce-core/helpers";
+import { normalizeLanguage } from "./languages.js";
 
 const log = logger.extend("search");
 
@@ -169,6 +171,8 @@ export async function searchCodeSnippets(
 ): Promise<SearchResult> {
   // Normalize input
   if (filters.author) filters.author = normalizeToPubkey(filters.author);
+  if (filters.language)
+    filters.language = normalizeLanguage(filters.language) || filters.language;
 
   log(`🔍 Searching for: "${filters.query}"`);
   if (filters.language) log(`   Language: ${filters.language}`);
@@ -197,6 +201,16 @@ export async function searchCodeSnippets(
     // Execute searches in parallel
     const searchPromises: Promise<NostrEvent[]>[] = [];
 
+    // Search non-NIP-50 relays with fallback method if any
+    if (nonNip50Relays.length > 0) {
+      log(
+        `   Searching ${nonNip50Relays.length} non-NIP-50 relays with fallback: ${nonNip50Relays.join(", ")}`,
+      );
+
+      const fallbackPromise = fallbackSearchEvents(filters, nonNip50Relays);
+      searchPromises.push(fallbackPromise);
+    }
+
     // Search NIP-50 supporting relays if any
     if (nip50SupportedRelays.length > 0) {
       log(
@@ -204,7 +218,6 @@ export async function searchCodeSnippets(
       );
 
       const searchFilter = buildSearchFilter(filters);
-      log(`   NIP-50 filter: ${JSON.stringify(searchFilter)}`);
 
       const nip50Promise = lastValueFrom(
         pool.request(nip50SupportedRelays, searchFilter).pipe(
@@ -221,32 +234,21 @@ export async function searchCodeSnippets(
       searchPromises.push(nip50Promise);
     }
 
-    // Search non-NIP-50 relays with fallback method if any
-    if (nonNip50Relays.length > 0) {
-      log(
-        `   Searching ${nonNip50Relays.length} non-NIP-50 relays with fallback: ${nonNip50Relays.join(", ")}`,
-      );
-
-      const fallbackPromise = fallbackSearchEvents(filters, nonNip50Relays);
-      searchPromises.push(fallbackPromise);
-    }
-
     // Wait for all searches to complete
     const searchResults = await Promise.all(searchPromises);
 
     // Combine and deduplicate results
-    const allEvents = searchResults.flat();
-    const uniqueEvents = Array.from(
-      new Map(allEvents.map((event) => [event.id, event])).values(),
-    );
-
-    // Sort by created_at (newest first)
-    uniqueEvents.sort((a, b) => b.created_at - a.created_at);
+    const seen = new Set<string>();
+    const allEvents = searchResults.flat().filter((e) => {
+      if (seen.has(e.id)) return false;
+      seen.add(e.id);
+      return true;
+    });
 
     // Apply final limit
     const finalEvents = filters.limit
-      ? uniqueEvents.slice(0, filters.limit)
-      : uniqueEvents;
+      ? allEvents.slice(0, filters.limit)
+      : allEvents;
 
     log(`   Combined results: ${finalEvents.length} snippets`);
 
@@ -260,6 +262,53 @@ export async function searchCodeSnippets(
     log(`   Error searching snippets: ${error}`);
     throw error;
   }
+}
+
+/**
+ * Fuzzy search events using FlexSearch
+ */
+async function fuzzySearchEvents(
+  events: NostrEvent[],
+  query: string,
+): Promise<NostrEvent[]> {
+  if (!query.trim()) return events;
+
+  // Create FlexSearch index
+  const index = new Index({
+    tokenize: "forward",
+    resolution: 3,
+    cache: true,
+  });
+
+  // Index events with combined searchable text
+  const eventMap = new Map<number, NostrEvent>();
+
+  events.forEach((event, idx) => {
+    const title = getTagValue(event, "title") || "";
+    const tags = event.tags
+      .filter((tag) => tag[0] === "t")
+      .map((tag) => tag[1] || "")
+      .join(" ");
+
+    // Combine content, title, and tags for comprehensive search
+    const searchableText = `${event.content} ${title} ${tags}`;
+
+    index.add(idx, searchableText);
+    eventMap.set(idx, event);
+  });
+
+  // Perform fuzzy search
+  const results = index.search(query, {
+    limit: events.length, // Get all matches, we'll sort them
+    suggest: true,
+  });
+
+  // Convert search results back to events
+  const matchedEvents = results
+    .map((idx) => eventMap.get(idx as number))
+    .filter((event): event is NostrEvent => event !== undefined);
+
+  return matchedEvents;
 }
 
 /**
@@ -303,21 +352,8 @@ async function fallbackSearchEvents(
     ),
   );
 
-  // Client-side filtering by search query
-  const query = filters.query.toLowerCase();
-  const filteredEvents = events.filter((event) => {
-    const content = event.content.toLowerCase();
-    const title = getTagValue(event, "title")?.toLowerCase() || "";
-    const tags = event.tags
-      .filter((tag) => tag[0] === "t")
-      .map((tag) => tag[1]?.toLowerCase() || "");
-
-    return (
-      content.includes(query) ||
-      title.includes(query) ||
-      tags.some((tag) => tag.includes(query))
-    );
-  });
+  // Client-side fuzzy filtering using FlexSearch
+  const filteredEvents = await fuzzySearchEvents(events, filters.query);
 
   log(`   Fallback search found ${filteredEvents.length} snippets`);
   return filteredEvents;

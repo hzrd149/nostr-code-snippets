@@ -10,6 +10,7 @@ import {
 } from "../../helpers/list.js";
 import { mcpError, mcpInfo, mcpMultiple } from "../../helpers/mcp.js";
 import { getPublicKey } from "../../helpers/user";
+import { normalizeLanguage } from "../../helpers/languages.js";
 
 const log = logger.extend("mcp:list");
 
@@ -48,9 +49,13 @@ export function registerListSnippetsTool(server: McpServer) {
       );
 
       try {
+        const normalizedLanguage = language
+          ? normalizeLanguage(language)
+          : undefined;
+
         const filters: SnippetFilters = {
           limit,
-          language,
+          language: normalizedLanguage,
           tags,
         };
 

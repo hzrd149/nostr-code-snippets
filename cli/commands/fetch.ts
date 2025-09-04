@@ -18,6 +18,10 @@ import {
   getSnippetTags,
   getSnippetTitle,
 } from "../../helpers/snippet.js";
+import {
+  formatCodeBlock,
+  highlightCode,
+} from "../../helpers/syntax-highlight.js";
 import type { BaseCommand } from "../types.js";
 
 const log = logger.extend("fetch");
@@ -46,8 +50,6 @@ export class FetchCommand implements BaseCommand {
 
   async execute(address: string, options: any): Promise<void> {
     try {
-      console.log(`🔍 Fetching snippet: ${address}`);
-
       const result = await this.processSingleSnippet(address, options.format);
       console.log("\n" + result);
     } catch (error) {
@@ -152,7 +154,10 @@ export class FetchCommand implements BaseCommand {
         if (license) detailedText += `**License:** ${license}\n`;
         if (repo) detailedText += `**Repository:** ${repo}\n`;
 
-        detailedText += `\n## Code\n\n\`\`\`${language}\n${content}\n\`\`\``;
+        detailedText += `\n## Code\n\n`;
+        detailedText += formatCodeBlock(content, language, {
+          lineNumbers: true,
+        });
 
         return detailedText;
 
@@ -161,13 +166,15 @@ export class FetchCommand implements BaseCommand {
         const snippetLanguage = getSnippetLanguage(event) || "unknown";
         const snippetContent = getSnippetContent(event);
 
+        const highlightedContent = highlightCode(snippetContent, {
+          language: snippetLanguage,
+        });
+
         return `**${snippetTitle}**
 Language: ${snippetLanguage}
 Author: ${event.pubkey.substring(0, 16)}...
 
-\`\`\`${snippetLanguage}
-${snippetContent}
-\`\`\``;
+${highlightedContent}`;
     }
   }
 }

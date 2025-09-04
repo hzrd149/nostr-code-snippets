@@ -3,6 +3,7 @@ import { z } from "zod";
 import { logger } from "../../helpers/debug.js";
 import { mcpError, mcpSuccess } from "../../helpers/mcp.js";
 import { searchCodeSnippets } from "../../helpers/search";
+import { normalizeLanguage } from "../../helpers/languages.js";
 
 const log = logger.extend("mcp:search");
 
@@ -38,10 +39,14 @@ export function registerSearchSnippetsTool(server: McpServer) {
       log(`Searching for "${query}"`);
 
       try {
+        const normalizedLanguage = language
+          ? normalizeLanguage(language)
+          : undefined;
+
         const searchResult = await searchCodeSnippets(
           {
             query,
-            language,
+            language: normalizedLanguage,
             limit,
           },
           extraRelays,

@@ -11,6 +11,7 @@ import {
 import type { BaseCommand } from "../types.js";
 import { formatSnippetForDisplay } from "../utils.js";
 import { getPublicKey } from "../../helpers/user";
+import { normalizeLanguage } from "../../helpers/languages.js";
 
 const log = logger.extend("list");
 
@@ -41,9 +42,13 @@ export class ListCommand implements BaseCommand {
 
       const limit = parseInt(options.limit);
 
+      const normalizedLanguage = options.language
+        ? normalizeLanguage(options.language)
+        : undefined;
+
       const filters: SnippetFilters = {
         limit,
-        language: options.language?.toLowerCase(),
+        language: normalizedLanguage,
         tags: options.tag,
       };
 

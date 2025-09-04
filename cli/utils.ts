@@ -13,6 +13,7 @@ import {
   getSnippetCreatedAt,
   getSnippetContent,
 } from "../helpers/snippet.js";
+import { formatSnippetPreview } from "../helpers/syntax-highlight.js";
 
 /** Create a clickable terminal link using ANSI escape sequences */
 export function createClickableLink(url: string, text: string): string {
@@ -64,11 +65,10 @@ export function formatSnippetForDisplay(event: NostrEvent): string {
 
   lines.push("");
 
-  // Show code preview
+  // Show code preview with syntax highlighting
   const content = getSnippetContent(event);
-  lines.push("```" + (language || ""));
-  lines.push(content.substring(0, 300) + (content.length > 300 ? "\n..." : ""));
-  lines.push("```");
+  const highlightedPreview = formatSnippetPreview(content, language, 300);
+  lines.push(highlightedPreview);
 
   return lines.join("\n");
 }

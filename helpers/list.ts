@@ -13,8 +13,11 @@ import {
   getSnippetLanguage,
   getSnippetTags,
   getSnippetTitle,
+  getSnippetContent,
 } from "./snippet.js";
+import { formatSnippetPreview } from "./syntax-highlight.js";
 import { getPublicKey } from "./user.js";
+import { normalizeLanguage } from "./languages.js";
 
 const log = logger.extend("list");
 
@@ -36,6 +39,10 @@ export async function fetchUserSnippets(
   userPubkey: string,
   filters: SnippetFilters = {},
 ): Promise<SnippetListResult> {
+  // Normalize language input
+  if (filters.language)
+    filters.language = normalizeLanguage(filters.language) || filters.language;
+
   log("🔍 Searching your snippets...");
   if (filters.language) log(`   Language: ${filters.language}`);
   if (filters.tags) log(`   Tags: ${filters.tags.join(", ")}`);
@@ -194,6 +201,13 @@ export function formatSnippetsDetailed(events: NostrEvent[]): string {
 
     const tags = getSnippetTags(event);
     if (tags.length > 0) lines.push(`🏷️  Tags: ${tags.join(", ")}`);
+
+    // Add syntax-highlighted code preview
+    const content = getSnippetContent(event);
+    const highlightedPreview = formatSnippetPreview(content, language, 200);
+
+    lines.push("");
+    lines.push(highlightedPreview);
 
     output += `\n${index + 1}. ${lines.join("\n")}\n`;
     output += "─".repeat(50) + "\n";

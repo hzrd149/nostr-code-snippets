@@ -6,6 +6,7 @@ import {
   searchCodeSnippets,
   type SearchFilters,
 } from "../../helpers/search.js";
+import { normalizeLanguage } from "../../helpers/languages.js";
 import type { NostrEvent } from "nostr-tools";
 
 export class SearchCommand implements BaseCommand {
@@ -66,10 +67,14 @@ export class SearchCommand implements BaseCommand {
       }
 
       // Build search filters
+      const normalizedLanguage = options.language
+        ? normalizeLanguage(options.language)
+        : undefined;
+
       const searchFilters: SearchFilters = {
         query,
         limit,
-        language: options.language,
+        language: normalizedLanguage,
         tags: options.tag.length > 0 ? options.tag : undefined,
         author: options.author,
       };
@@ -87,7 +92,7 @@ export class SearchCommand implements BaseCommand {
         // Show search info
         if (searchResult.nip50SupportedRelays.length > 0) {
           console.log(
-            `   Searched ${searchResult.nip50SupportedRelays.length} NIP-50 relays`,
+            `   Searched ${searchResult.searchedRelays.length} relays`,
           );
         } else {
           console.log(
@@ -102,15 +107,9 @@ export class SearchCommand implements BaseCommand {
       );
 
       // Show search method info
-      if (searchResult.nip50SupportedRelays.length > 0) {
-        console.log(
-          `   📡 Searched ${searchResult.nip50SupportedRelays.length} NIP-50 relays`,
-        );
-      } else {
-        console.log(
-          `   📡 Used fallback search (${searchResult.searchedRelays.length} relays, no NIP-50 support)`,
-        );
-      }
+      console.log(
+        `   📡 Searched ${searchResult.searchedRelays.length} relays`,
+      );
 
       // Sort results if needed
       let sortedEvents = [...searchResult.events];
