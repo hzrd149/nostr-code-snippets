@@ -62,7 +62,6 @@ export function formatSnippetForDisplay(event: NostrEvent): string {
   const tags = getSnippetTags(event);
   if (tags.length > 0) lines.push(`🏷️  Tags: ${tags.join(", ")}`);
 
-  lines.push(`👤 You`); // Since we're filtering by user's pubkey
   lines.push("");
 
   // Show code preview

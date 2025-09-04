@@ -337,6 +337,9 @@ export class SignerCommand implements BaseCommand {
 
       console.log("🔄 Testing connection...");
 
+      // Connect to the bunker
+      await signer.connect();
+
       // Test the connection by getting the public key
       const pubkey = await signer.getPublicKey();
 

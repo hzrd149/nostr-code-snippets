@@ -4,8 +4,8 @@ import {
   SimpleSigner,
   type ISigner,
 } from "applesauce-signers";
-import { getPassword, setPassword, deletePassword } from "keytar";
-import { getConfigPath, loadConfig, saveConfig } from "./config";
+import { deletePassword, getPassword, setPassword } from "keytar";
+import { getConfigPath } from "./config";
 import { logger } from "./debug.js";
 import { pool } from "./nostr";
 import { registerShutdownHandler } from "./shutdown.js";
@@ -59,15 +59,12 @@ async function createSignerFromValue(signerValue: string): Promise<ISigner> {
     // Handle nbunksec format using @sandwichfarm/encoded-entities
     const bunker = decodeNbunksec(signerValue);
 
-    const nostrConnectSigner = new NostrConnectSigner({
+    return new NostrConnectSigner({
       remote: bunker.pubkey,
       signer: SimpleSigner.fromKey(bunker.local_key),
       relays: bunker.relays,
       secret: bunker.secret,
     });
-
-    await nostrConnectSigner.connect();
-    return nostrConnectSigner;
   } else {
     throw new Error("Invalid signer format");
   }

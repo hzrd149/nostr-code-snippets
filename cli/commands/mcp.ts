@@ -76,34 +76,104 @@ export class McpCommand implements BaseCommand {
 
     if (verbose) log("🔧 Registering MCP tools...");
 
-    server.tool(
+    server.registerTool(
       "search_snippets",
-      "Search for code snippets on Nostr",
       {
-        query: z.string().min(1).describe("Search query for code snippets"),
-        language: z
-          .string()
-          .optional()
-          .describe("Filter by programming language"),
-        limit: z
-          .number()
-          .min(1)
-          .max(50)
-          .default(10)
-          .describe("Maximum number of results"),
+        title: "Search for code snippets on Nostr",
+        description: "Search for code snippets on Nostr",
+        inputSchema: {
+          query: z.string().min(2).describe("Search query for code snippets"),
+          language: z
+            .string()
+            .optional()
+            .describe("Filter by programming language"),
+          limit: z
+            .number()
+            .min(1)
+            .max(50)
+            .default(10)
+            .describe("Maximum number of results"),
+        },
       },
       async ({ query, language, limit }) => {
         if (verbose) log(`Searching for "${query}"`);
 
-        // TODO: Implement search logic
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Search results for "${query}" (implementation pending)`,
-            },
-          ],
-        };
+        try {
+          const { searchCodeSnippets } = await import(
+            "../../helpers/search.js"
+          );
+
+          const searchResult = await searchCodeSnippets({
+            query,
+            language,
+            limit,
+          });
+
+          if (searchResult.events.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `No code snippets found for query: "${query}"${language ? ` (language: ${language})` : ""}`,
+                },
+              ],
+            };
+          }
+
+          const resultsText = searchResult.events
+            .map((event, index) => {
+              const title =
+                event.tags.find((tag) => tag[0] === "title")?.[1] || "Untitled";
+              const lang =
+                event.tags.find((tag) => tag[0] === "l")?.[1] || "unknown";
+              const tags = event.tags
+                .filter((tag) => tag[0] === "t")
+                .map((tag) => tag[1])
+                .join(", ");
+              const content =
+                event.content.length > 200
+                  ? event.content.substring(0, 200) + "..."
+                  : event.content;
+
+              return `${index + 1}. **${title}**
+Language: ${lang}
+Tags: ${tags || "none"}
+Author: ${event.pubkey.substring(0, 16)}...
+Content:
+\`\`\`${lang}
+${content}
+\`\`\`
+---`;
+            })
+            .join("\n\n");
+
+          const searchInfo =
+            searchResult.nip50SupportedRelays.length > 0
+              ? `Searched ${searchResult.nip50SupportedRelays.length} NIP-50 relays`
+              : `Used fallback search on ${searchResult.searchedRelays.length} relays`;
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Found ${searchResult.events.length} code snippets for "${query}":
+
+${searchInfo}
+
+${resultsText}`,
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error searching for "${query}": ${error instanceof Error ? error.message : error}`,
+              },
+            ],
+          };
+        }
       },
     );
 
@@ -130,7 +200,7 @@ export class McpCommand implements BaseCommand {
       async ({ limit, language, tags, format }) => {
         if (verbose)
           log(
-            `Listing user snippets (limit: ${limit}, language: ${language || "any"}, tags: ${tags.join(", ") || "any"}, format: ${format})`,
+            `Listing user snippets (limit: ${limit}, language: ${language || "any"}, tags: ${tags?.join(", ") || "any"}, format: ${format})`,
           );
 
         try {

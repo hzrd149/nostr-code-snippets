@@ -41,6 +41,6 @@
     "nostr-tools": "^2.16.2",
     "qrcode-terminal": "^0.12.0",
     "rxjs": "^7.8.2",
-    "zod": "^4.1.5"
+    "zod": "^3"
   }
 }
