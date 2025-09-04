@@ -33,12 +33,18 @@ export class SignerCommand implements BaseCommand {
       )
       .option("-c, --connect", "Connect/sign in with a new signer")
       .option(
+        "--create",
+        "Create nbunksec string for CI/CD (prints to stdout without saving)",
+      )
+      .option(
         "-r, --reset",
         "Clear signer from keyring (keeps pubkey in config)",
       )
       .action(async (signerArg, options) => {
         if (options.connect) {
           await this.executeConnect(signerArg);
+        } else if (options.create) {
+          await this.executeCreate(signerArg);
         } else if (options.reset) {
           await this.executeReset();
         } else {
@@ -175,6 +181,24 @@ export class SignerCommand implements BaseCommand {
     } catch (error) {
       console.error(
         "❌ Signer reset failed:",
+        error instanceof Error ? error.message : error,
+      );
+      process.exit(1);
+    }
+  }
+
+  async executeCreate(signerArg?: string): Promise<void> {
+    try {
+      if (signerArg) {
+        // Direct creation with provided bunker URI
+        await this.createFromBunkerURI(signerArg);
+      } else {
+        // Interactive creation flow
+        await this.interactiveCreate();
+      }
+    } catch (error) {
+      console.error(
+        "❌ nbunksec creation failed:",
         error instanceof Error ? error.message : error,
       );
       process.exit(1);
@@ -419,6 +443,193 @@ export class SignerCommand implements BaseCommand {
     } catch (error) {
       throw new Error(
         `Failed to connect signer via QR code: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+
+  private async createFromBunkerURI(bunkerURI: string): Promise<void> {
+    if (!bunkerURI.startsWith("bunker://")) {
+      throw new Error("URI must start with bunker://");
+    }
+
+    console.log("🔄 Connecting to bunker to create nbunksec...");
+
+    try {
+      // Create NostrConnectSigner from bunker URI
+      const signer = await NostrConnectSigner.fromBunkerURI(bunkerURI);
+
+      console.log("🔄 Testing connection...");
+
+      // Test the connection by getting the public key
+      const pubkey = await signer.getPublicKey();
+
+      // Create nbunksec format
+      const nbunksec = encodeNbunksec({
+        pubkey: pubkey,
+        local_key: bytesToHex(signer.signer.key),
+        relays: signer.relays || [],
+        secret: signer.secret || "",
+      });
+
+      // Clean up the signer connection
+      if (signer instanceof NostrConnectSigner) {
+        await signer.close();
+      }
+
+      // Output the nbunksec to stdout for CI/CD use
+      console.log("\n✅ nbunksec created successfully!");
+      console.log("─".repeat(50));
+      console.log("📋 Copy this nbunksec for your CI/CD pipeline:");
+      console.log(nbunksec);
+      console.log("─".repeat(50));
+      console.log("\n💡 Usage in CI/CD:");
+      console.log("   export SIGNER=" + nbunksec);
+    } catch (error) {
+      throw new Error(
+        `Failed to create nbunksec from bunker URI: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+
+  private async interactiveCreate(): Promise<void> {
+    console.log("\n🔐 Create nbunksec for CI/CD");
+    console.log("─".repeat(40));
+    console.log("Choose how you'd like to create your nbunksec:\n");
+
+    const { method } = await inquirer.prompt([
+      {
+        type: "list",
+        name: "method",
+        message: "How would you like to create the nbunksec?",
+        choices: [
+          {
+            name: "🔗 Bunker URI - Connect using NIP-46 bunker://",
+            value: "bunker",
+          },
+          {
+            name: "📱 QR Code - Generate QR code for mobile apps",
+            value: "qr",
+          },
+        ],
+      },
+    ]);
+
+    switch (method) {
+      case "bunker":
+        await this.createWithBunker();
+        break;
+      case "qr":
+        await this.createWithQR();
+        break;
+    }
+  }
+
+  private async createWithBunker(): Promise<void> {
+    console.log("\n🔗 Bunker URI nbunksec Creation");
+    console.log("─".repeat(30));
+    console.log("Enter your NIP-46 bunker:// URI to create nbunksec\n");
+
+    const { bunkerURI } = await inquirer.prompt([
+      {
+        type: "input",
+        name: "bunkerURI",
+        message: "Bunker URI:",
+        validate: (input: string) => {
+          if (!input.trim()) return "Bunker URI is required";
+          if (!input.trim().startsWith("bunker://"))
+            return "URI must start with bunker://";
+          return true;
+        },
+      },
+    ]);
+
+    await this.createFromBunkerURI(bunkerURI.trim());
+  }
+
+  private async createWithQR(): Promise<void> {
+    console.log("\n📱 QR Code nbunksec Creation");
+    console.log("─".repeat(30));
+    console.log("Creating a new connection for you to scan...\n");
+
+    // Ask user for relay URL
+    const { relayUrl } = await inquirer.prompt([
+      {
+        type: "input",
+        name: "relayUrl",
+        message: "Enter relay URL:",
+        default: DEFAULT_SIGNER_RELAY,
+        validate: (input: string) => {
+          if (!input.trim()) {
+            return "Relay URL is required";
+          }
+
+          try {
+            const url = new URL(input.trim());
+            if (url.protocol !== "wss:" && url.protocol !== "ws:") {
+              return "Relay URL must use ws:// or wss:// protocol";
+            }
+            return true;
+          } catch {
+            return "Please enter a valid URL";
+          }
+        },
+      },
+    ]);
+
+    try {
+      // Create a new NostrConnectSigner
+      const signer = new NostrConnectSigner({
+        relays: [relayUrl.trim()],
+      });
+
+      // Get the nostr-connect:// URI
+      const connectURI = signer.getNostrConnectURI({
+        name: "nostr-code-snippets",
+        permissions: NostrConnectSigner.buildSigningPermissions([1337]),
+      });
+
+      console.log("📱 Scan this QR code with your Nostr app:\n");
+
+      // Generate and display QR code
+      qrcode.generate(connectURI, { small: true });
+
+      console.log(`\n🔗 Or copy this URI manually:`);
+      console.log(`${connectURI}\n`);
+
+      console.log("⏳ Waiting for connection...");
+      console.log("   (This may take a moment after scanning)\n");
+
+      // Wait for connection
+      await signer.waitForSigner();
+
+      // Get public key to confirm connection
+      const pubkey = await signer.getPublicKey();
+
+      // Create nbunksec for output
+      const nbunksec = encodeNbunksec({
+        pubkey: pubkey,
+        local_key: bytesToHex(signer.signer.key),
+        relays: [relayUrl.trim()],
+        secret: signer.secret || "",
+      });
+
+      // Clean up the signer connection
+      if (signer instanceof NostrConnectSigner) {
+        await signer.close();
+      }
+
+      // Output the nbunksec to stdout for CI/CD use
+      console.log("\n✅ nbunksec created successfully!");
+      console.log("─".repeat(50));
+      console.log("📋 Copy this nbunksec for your CI/CD pipeline:");
+      console.log(nbunksec);
+      console.log("─".repeat(50));
+      console.log("\n💡 Usage in CI/CD:");
+      console.log("   export SIGNER=" + nbunksec);
+      console.log("   nostr-code-snippets publish <snippet>");
+    } catch (error) {
+      throw new Error(
+        `Failed to create nbunksec via QR code: ${error instanceof Error ? error.message : error}`,
       );
     }
   }
