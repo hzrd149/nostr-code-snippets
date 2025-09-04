@@ -6,11 +6,15 @@ import {
 } from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
 import { loadConfig } from "./config";
+import { logger } from "./debug.js";
+import { registerShutdownHandler } from "./shutdown.js";
 import { getPublicKey, getUserMailboxes } from "./user";
+
+const log = logger.extend("nostr");
 
 export const eventStore = new EventStore();
 export const pool = new RelayPool({
-  keepAlive: 0,
+  keepAlive: 5000,
 });
 
 // Create loaders
@@ -27,6 +31,18 @@ export const eventLoader = createEventLoader(pool, {
 eventStore.addressableLoader = addressLoader;
 eventStore.replaceableLoader = addressLoader;
 eventStore.eventLoader = eventLoader;
+
+// Register shutdown handler to clean up relay connections
+registerShutdownHandler("nostr-pool", async () => {
+  log("Closing relay pool connections");
+  try {
+    for (const [url, relay] of pool.relays) await relay.close();
+
+    log("Relay pool connections closed successfully");
+  } catch (error) {
+    log("Error closing relay pool:", error);
+  }
+});
 
 /** Get the list of relays to read from */
 export async function getReadRelays() {

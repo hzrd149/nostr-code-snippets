@@ -1,22 +1,17 @@
-import { mapEventsToStore, mapEventsToTimeline } from "applesauce-core";
 import { Command } from "commander";
 import { type NostrEvent } from "nostr-tools";
-import { neventEncode } from "nostr-tools/nip19";
-import { filter, identity, lastValueFrom, take } from "rxjs";
-import { loadConfig } from "../../helpers/config.js";
 import { logger } from "../../helpers/debug.js";
-import { eventStore, getReadRelays, pool } from "../../helpers/nostr.js";
 import {
-  getSnippetCreatedAt,
-  getSnippetLanguage,
-  getSnippetTags,
-  getSnippetTitle,
-  snippetMatchesLanguage,
-  snippetMatchesTag,
-} from "../../helpers/snippet.js";
-import { getPublicKey } from "../../helpers/user.js";
+  fetchUserSnippets,
+  displaySnippetsTable,
+  formatSnippetsAsJson,
+  formatSnippetsDetailed,
+  type SnippetFilters,
+} from "../../helpers/list.js";
 import type { BaseCommand } from "../types.js";
-import { createClickableLink, formatSnippetForDisplay } from "../utils.js";
+import { formatSnippetForDisplay } from "../utils.js";
+
+const log = logger.extend("list");
 
 export class ListCommand implements BaseCommand {
   name = "list";
@@ -47,14 +42,16 @@ export class ListCommand implements BaseCommand {
     try {
       console.log("📋 Your published code snippets:");
 
-      const config = loadConfig();
       const limit = parseInt(options.limit);
 
-      const events = await this.fetchUserSnippets({
+      const filters: SnippetFilters = {
         limit,
         language: options.language,
-        tag: options.tag,
-      });
+        tags: options.tag,
+      };
+
+      const result = await fetchUserSnippets(filters);
+      const events = result.events;
 
       if (events.length === 0) {
         console.log("\n🔍 No snippets found.");
@@ -70,16 +67,13 @@ export class ListCommand implements BaseCommand {
 
       switch (options.format) {
         case "json":
-          console.log(JSON.stringify(events, null, 2));
+          console.log(formatSnippetsAsJson(events));
           break;
         case "detailed":
-          events.forEach((event, index) => {
-            console.log(`\n${index + 1}. ${formatSnippetForDisplay(event)}`);
-            console.log("─".repeat(50));
-          });
+          console.log(formatSnippetsDetailed(events));
           break;
         default: // table
-          this.displayTable(events);
+          console.log(displaySnippetsTable(events));
       }
     } catch (error) {
       console.error(
@@ -88,143 +82,5 @@ export class ListCommand implements BaseCommand {
       );
       process.exit(1);
     }
-  }
-
-  private async fetchUserSnippets(filters: {
-    limit: number;
-    language: string;
-    tag: string;
-  }): Promise<NostrEvent[]> {
-    logger("🔍 Searching your snippets...");
-    if (filters.language) logger(`   Language: ${filters.language}`);
-    if (filters.tag) logger(`   Tag: ${filters.tag}`);
-
-    try {
-      // Get user's public key using the centralized method
-      const userPubkey = await getPublicKey();
-
-      if (!userPubkey) {
-        throw new Error(
-          "No pubkey found in config and no signer available. Please run 'nostr-code-snippets signer --connect' first.",
-        );
-      }
-
-      logger(`   Searching for snippets from pubkey: ${userPubkey}`);
-
-      // Get the optimal set of relays to read from (includes outbox relays)
-      const readRelays = await getReadRelays();
-      logger(
-        `   Reading from ${readRelays.length} relays: ${readRelays.join(", ")}`,
-      );
-
-      // Query for kind 1337 events from the user
-      const nostrFilter = {
-        kinds: [1337], // Code snippet kind from NIP-C0
-        authors: [userPubkey],
-        limit: filters.limit * 2, // Get more to account for filtering
-      };
-
-      logger(`   Querying with filter: ${JSON.stringify(filter)}`);
-
-      // Get events from relays
-      const events = (
-        await lastValueFrom(
-          pool.request(readRelays, nostrFilter).pipe(
-            // Deduplicate events
-            mapEventsToStore(eventStore),
-            // Apply filters
-            filter((event) => {
-              if (
-                filters.language &&
-                !snippetMatchesLanguage(event, filters.language)
-              )
-                return false;
-
-              if (filters.tag && !snippetMatchesTag(event, filters.tag))
-                return false;
-
-              return true;
-            }),
-            // Only take the limit number of events
-            filters.limit ? take(filters.limit) : identity,
-            // Map to timeline
-            mapEventsToTimeline(),
-          ),
-        )
-      ).slice(0, filters.limit);
-
-      logger(`   Found ${events.length} snippets`);
-      return events;
-    } catch (error) {
-      logger(`   Error fetching snippets: ${error}`);
-      throw error;
-    }
-  }
-
-  private displayTable(events: NostrEvent[]): void {
-    const maxTitleLength = 30;
-    const maxLanguageLength = 12;
-
-    // Header
-    console.log(
-      "\n┌────────┬─" +
-        "─".repeat(maxTitleLength) +
-        "─┬─" +
-        "─".repeat(maxLanguageLength) +
-        "─┬─────────────┬──────────────┐",
-    );
-    console.log(
-      "│ ID     │ " +
-        "Title".padEnd(maxTitleLength) +
-        " │ " +
-        "Language".padEnd(maxLanguageLength) +
-        " │ Tags        │ Created      │",
-    );
-    console.log(
-      "├────────┼─" +
-        "─".repeat(maxTitleLength) +
-        "─┼─" +
-        "─".repeat(maxLanguageLength) +
-        "─┼─────────────┼──────────────┤",
-    );
-
-    // Rows
-    events.forEach((event) => {
-      const nevent = neventEncode({
-        id: event.id,
-        author: event.pubkey,
-        kind: event.kind,
-      });
-      const url = `https://njump.me/${nevent}`;
-      const shortId = event.id.substring(0, 6);
-      const clickableId = createClickableLink(url, shortId.padEnd(6));
-
-      const title = getSnippetTitle(event)
-        .substring(0, maxTitleLength)
-        .padEnd(maxTitleLength);
-      const language = (getSnippetLanguage(event) || "Unknown")
-        .substring(0, maxLanguageLength)
-        .padEnd(maxLanguageLength);
-      const tags = getSnippetTags(event)
-        .slice(0, 2)
-        .join(",")
-        .substring(0, 11)
-        .padEnd(11);
-      const created = getSnippetCreatedAt(event)
-        .toLocaleDateString()
-        .padEnd(12);
-
-      console.log(
-        `│ ${clickableId} │ ${title} │ ${language} │ ${tags} │ ${created} │`,
-      );
-    });
-
-    console.log(
-      "└────────┴─" +
-        "─".repeat(maxTitleLength) +
-        "─┴─" +
-        "─".repeat(maxLanguageLength) +
-        "─┴─────────────┴──────────────┘",
-    );
   }
 }

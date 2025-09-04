@@ -11,10 +11,11 @@
     "mcp": "bun run index.ts mcp",
     "dev": "mcp-inspector bun run index.ts mcp",
     "build": "bun build index.ts --outdir ./dist --target bun",
-    "help": "bun run index.ts --help"
+    "goose": "goose session --with-extension 'bun run . mcp'"
   },
   "devDependencies": {
-    "@modelcontextprotocol/inspector": "^0.16.5",
+    "@modelcontextprotocol/inspector": "^0.16.6",
+    "@types/async-exit-hook": "^2.0.2",
     "@types/bun": "latest",
     "@types/debug": "^4.1.12",
     "@types/inquirer": "^9.0.9",
@@ -32,6 +33,7 @@
     "applesauce-loaders": "^3.1.0",
     "applesauce-relay": "^3.1.0",
     "applesauce-signers": "^3.1.0",
+    "async-exit-hook": "^2.0.1",
     "commander": "^14.0.0",
     "debug": "^4.4.1",
     "inquirer": "^12.9.4",

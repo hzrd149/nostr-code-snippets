@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { setConfigPath } from "../helpers/config.js";
 import { enableDebugLogging } from "../helpers/debug.js";
+import { gracefulShutdown } from "../helpers/shutdown.js";
 import { ConfigCommand } from "./commands/config.js";
 import { ListCommand } from "./commands/list.js";
 import { McpCommand } from "./commands/mcp.js";
@@ -79,6 +80,15 @@ export async function runCli(): Promise<void> {
     if (configPath) setConfigPath(configPath);
   }
 
-  // Parse command line arguments
-  await program.parseAsync(process.argv);
+  try {
+    // Parse command line arguments
+    await program.parseAsync(process.argv);
+
+    // For non-MCP commands, trigger graceful shutdown after completion
+    // The MCP command handles its own shutdown lifecycle
+    if (!args.includes("mcp")) await gracefulShutdown(0);
+  } catch (error) {
+    console.error("Command failed:", error);
+    await gracefulShutdown(1);
+  }
 }

@@ -8,6 +8,7 @@ import { getPassword, setPassword, deletePassword } from "keytar";
 import { getConfigPath, loadConfig, saveConfig } from "./config";
 import { logger } from "./debug.js";
 import { pool } from "./nostr";
+import { registerShutdownHandler } from "./shutdown.js";
 
 // Setup nostr connect signer
 NostrConnectSigner.pool = pool;
@@ -15,6 +16,20 @@ NostrConnectSigner.pool = pool;
 const log = logger.extend("signer");
 
 let signerInstance: ISigner | null = null;
+
+// Register shutdown handler to clean up signer connections
+registerShutdownHandler("signer", async () => {
+  if (signerInstance && signerInstance instanceof NostrConnectSigner) {
+    log("Closing NostrConnect signer connection");
+    try {
+      await signerInstance.close();
+      log("NostrConnect signer connection closed successfully");
+    } catch (error) {
+      log("Error closing NostrConnect signer:", error);
+    }
+  }
+  signerInstance = null;
+});
 
 /**
  * Gets a singleton ISigner instance based on the "signer" config field or "SIGNER" env var.
@@ -107,7 +122,7 @@ async function createSignerInstance(): Promise<ISigner> {
   if (!signerValue) throw new Error("No signer configured.");
 
   log(
-    `🔑 Creating signer from ${signerValue.startsWith("nsec1") ? "nsec" : signerValue.startsWith("nbunksec") ? "nbunksec" : "unknown"} format`,
+    `Creating signer from ${signerValue.startsWith("nsec1") ? "nsec" : signerValue.startsWith("nbunksec") ? "nbunksec" : "unknown"} format`,
   );
 
   try {

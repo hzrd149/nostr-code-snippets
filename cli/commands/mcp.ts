@@ -3,7 +3,17 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { Command } from "commander";
 import { z } from "zod";
 import { logger } from "../../helpers/debug.js";
+import {
+  displaySnippetsTable,
+  fetchUserSnippets,
+  formatSnippetsAsJson,
+  formatSnippetsDetailed,
+  type SnippetFilters,
+} from "../../helpers/list.js";
+import { registerShutdownHandler } from "../../helpers/shutdown.js";
 import type { BaseCommand } from "../types.js";
+
+const log = logger.extend("mcp");
 
 export class McpCommand implements BaseCommand {
   name = "mcp";
@@ -26,21 +36,26 @@ export class McpCommand implements BaseCommand {
   async execute(options: any): Promise<void> {
     try {
       if (options.verbose) {
-        logger("🚀 Starting Nostr Code Snippets MCP Server...");
-        logger("📡 Server will communicate via stdin/stdout");
-        logger("🔧 Use Ctrl+C to stop the server");
-        logger("─".repeat(50));
+        log("🚀 Starting Nostr Code Snippets MCP Server...");
+        log("📡 Server will communicate via stdin/stdout");
+        log("🔧 Use Ctrl+C to stop the server");
+        log("─".repeat(50));
       }
 
       const server = this.createMcpServer(options.verbose);
       const transport = new StdioServerTransport();
 
-      // Handle graceful shutdown
-      process.on("SIGINT", () => {
-        if (options.verbose) {
-          logger("\n🛑 Shutting down MCP server...");
+      // Register MCP server shutdown handler
+      registerShutdownHandler("mcp-server", async () => {
+        if (options.verbose) log("Disconnecting MCP server transport");
+        try {
+          // Close the transport connection gracefully
+          await transport.close?.();
+          if (options.verbose) log("MCP server transport closed successfully");
+        } catch (error) {
+          if (options.verbose)
+            log("Error closing MCP server transport:", error);
         }
-        process.exit(0);
       });
 
       await server.connect(transport);
@@ -59,42 +74,7 @@ export class McpCommand implements BaseCommand {
       version: "1.0.0",
     });
 
-    if (verbose) {
-      logger("🔧 Registering MCP tools...");
-    }
-
-    // @ts-ignore - MCP SDK type definitions have issues but functionality works correctly
-    server.tool(
-      "publish_snippet",
-      "Publish a code snippet to Nostr",
-      {
-        content: z.string().min(1).describe("The code content to publish"),
-        language: z
-          .string()
-          .optional()
-          .describe("Programming language of the code"),
-        title: z.string().optional().describe("Title for the code snippet"),
-        tags: z
-          .array(z.string())
-          .optional()
-          .describe("Tags for the code snippet"),
-      },
-      async ({ content, language, title, tags }) => {
-        if (verbose) {
-          logger(`📝 MCP: Publishing snippet "${title || "Untitled"}"`);
-        }
-
-        // TODO: Implement Nostr publishing logic
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Code snippet published successfully! Content: ${content.substring(0, 100)}...`,
-            },
-          ],
-        };
-      },
-    );
+    if (verbose) log("🔧 Registering MCP tools...");
 
     server.tool(
       "search_snippets",
@@ -113,9 +93,7 @@ export class McpCommand implements BaseCommand {
           .describe("Maximum number of results"),
       },
       async ({ query, language, limit }) => {
-        if (verbose) {
-          logger(`🔍 MCP: Searching for "${query}"`);
-        }
+        if (verbose) log(`Searching for "${query}"`);
 
         // TODO: Implement search logic
         return {
@@ -132,27 +110,88 @@ export class McpCommand implements BaseCommand {
     server.tool(
       "list_my_snippets",
       "List your published code snippets",
-      {},
-      async () => {
-        if (verbose) {
-          logger("📋 MCP: Listing user snippets");
-        }
+      {
+        limit: z
+          .number()
+          .min(1)
+          .max(100)
+          .default(10)
+          .describe("Maximum number of snippets to return"),
+        language: z
+          .string()
+          .optional()
+          .describe("Filter by programming language"),
+        tags: z.array(z.string()).optional().describe("Filter by tags"),
+        format: z
+          .enum(["table", "json", "detailed"])
+          .default("table")
+          .describe("Output format"),
+      },
+      async ({ limit, language, tags, format }) => {
+        if (verbose)
+          log(
+            `Listing user snippets (limit: ${limit}, language: ${language || "any"}, tags: ${tags.join(", ") || "any"}, format: ${format})`,
+          );
 
-        // TODO: Implement listing logic
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Your published snippets (implementation pending)",
-            },
-          ],
-        };
+        try {
+          const filters: SnippetFilters = {
+            limit,
+            language,
+            tags,
+          };
+
+          const result = await fetchUserSnippets(filters);
+          const events = result.events;
+
+          if (events.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "🔍 No snippets found.\n💡 Publish your first snippet with: nostr-code-snippets publish <file>",
+                },
+              ],
+            };
+          }
+
+          let formattedOutput: string;
+          switch (format) {
+            case "json":
+              formattedOutput = formatSnippetsAsJson(events);
+              break;
+            case "detailed":
+              formattedOutput = formatSnippetsDetailed(events);
+              break;
+            default: // table
+              formattedOutput = displaySnippetsTable(events);
+              break;
+          }
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Found ${events.length} snippet${events.length === 1 ? "" : "s"}:`,
+              },
+              { type: "text", text: formattedOutput },
+            ],
+          };
+        } catch (error) {
+          if (verbose) log(`❌ MCP: Error listing snippets: ${error}`);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `❌ Failed to list snippets: ${error instanceof Error ? error.message : error}`,
+              },
+            ],
+          };
+        }
       },
     );
 
-    if (verbose) {
-      logger("✅ MCP tools registered successfully");
-    }
+    if (verbose) log("✅ MCP tools registered successfully");
 
     return server;
   }
