@@ -4,9 +4,11 @@ import {
   SimpleSigner,
   type ISigner,
 } from "applesauce-signers";
-import { loadConfig, saveConfig } from "../cli/utils.js";
+import { loadConfig, saveConfig, getConfigPath } from "../cli/utils.js";
 import { logger } from "./debug.js";
 import { pool } from "./nostr";
+
+import { getPassword, setPassword } from "keytar";
 
 // Setup nostr connect signer
 NostrConnectSigner.pool = pool;
@@ -58,9 +60,9 @@ async function createSignerFromValue(signerValue: string): Promise<ISigner> {
 }
 
 /**
- * Sets the signer in the config and automatically derives and sets the pubkey
+ * Sets the signer in the system keyring and automatically derives and sets the pubkey in config
  */
-export async function setSignerInConfig(signerValue: string): Promise<void> {
+export async function setSignerInKeyring(signerValue: string): Promise<void> {
   try {
     // Create a signer instance to get the public key
     const signer = await createSignerFromValue(signerValue);
@@ -68,9 +70,13 @@ export async function setSignerInConfig(signerValue: string): Promise<void> {
     // Get the public key from the signer
     const pubkey = await signer.getPublicKey();
 
-    // Load current config, update signer and pubkey, then save
+    // Store the signer in the system keyring using the config file path as username
+    const configPath = getConfigPath();
+    log(`Setting signer in keyring for config file: ${configPath}`);
+    await setPassword("nostr-code-snippets", configPath, signerValue);
+
+    // Load current config, update only pubkey (not signer), then save
     const config = loadConfig();
-    config.signer = signerValue;
     config.pubkey = pubkey;
     saveConfig(config);
 
@@ -80,7 +86,9 @@ export async function setSignerInConfig(signerValue: string): Promise<void> {
     // If the signer is a NostrConnectSigner, close it (so cli closes cleanly)
     if (signer instanceof NostrConnectSigner) await signer.close();
 
-    log(`🔑 Signer and pubkey updated in config. Pubkey: ${pubkey}`);
+    log(
+      `Signer stored in keyring and pubkey updated in config. Pubkey: ${pubkey}`,
+    );
   } catch (error) {
     throw new Error(
       `Failed to set signer: ${error instanceof Error ? error.message : error}`,
@@ -93,7 +101,7 @@ export async function setSignerInConfig(signerValue: string): Promise<void> {
  */
 export function setSignerInstance(signer: ISigner): void {
   signerInstance = signer;
-  log(`🔑 Signer instance set directly`);
+  log(`Signer instance set directly`);
 }
 
 /**
@@ -101,17 +109,14 @@ export function setSignerInstance(signer: ISigner): void {
  */
 export function clearSignerInstance(): void {
   signerInstance = null;
-  log(`🔑 Signer instance cleared`);
+  log(`Signer instance cleared`);
 }
 
 async function createSignerInstance(): Promise<ISigner> {
-  // Check environment variable first, then config file
-  const signerValue = process.env.SIGNER || getConfigSigner();
+  // Check environment variable first, then keyring
+  const signerValue = process.env.SIGNER || (await getKeyringSigner());
 
-  if (!signerValue)
-    throw new Error(
-      "No signer configured. Please set the SIGNER environment variable or configure a signer using: nostr-code-snippets config --signer <nsec_or_nbunksec>",
-    );
+  if (!signerValue) throw new Error("No signer configured.");
 
   log(
     `🔑 Creating signer from ${signerValue.startsWith("nsec1") ? "nsec" : signerValue.startsWith("nbunksec") ? "nbunksec" : "unknown"} format`,
@@ -126,14 +131,19 @@ async function createSignerInstance(): Promise<ISigner> {
   }
 }
 
-function getConfigSigner(): string | undefined {
+/**
+ * Gets the signer from the system keyring
+ */
+async function getKeyringSigner(): Promise<string | null> {
   try {
-    const config = loadConfig();
-    return config.signer;
+    const configPath = getConfigPath();
+    log(`Getting signer from keyring for config file: ${configPath}`);
+    const signerValue = await getPassword("nostr-code-snippets", configPath);
+    return signerValue;
   } catch (error) {
     log(
-      `⚠️ Failed to load config: ${error instanceof Error ? error.message : error}`,
+      `⚠️ Failed to get signer from keyring: ${error instanceof Error ? error.message : error}`,
     );
-    return undefined;
+    return null;
   }
 }

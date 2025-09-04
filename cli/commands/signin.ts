@@ -6,9 +6,10 @@ import { nsecEncode } from "nostr-tools/nip19";
 import { bytesToHex } from "nostr-tools/utils";
 import * as qrcode from "qrcode-terminal";
 import { logger } from "../../helpers/debug.js";
-import { setSignerInConfig, setSignerInstance } from "../../helpers/signer.js";
+import { setSignerInKeyring, setSignerInstance } from "../../helpers/signer.js";
 import type { BaseCommand } from "../types.js";
-import { loadConfig, saveConfig } from "../utils.js";
+import { loadConfig } from "../../helpers/config.js";
+import { DEFAULT_SIGNER_RELAY } from "../../helpers/const";
 
 const log = logger.extend("signin");
 
@@ -50,7 +51,7 @@ export class SigninCommand implements BaseCommand {
     );
 
     try {
-      await setSignerInConfig(signerValue);
+      await setSignerInKeyring(signerValue);
       console.log("✅ Successfully signed in!");
 
       // Show user info
@@ -141,7 +142,7 @@ export class SigninCommand implements BaseCommand {
         nsecKey = nsecEncode(signer.key);
       }
 
-      await setSignerInConfig(nsecKey);
+      await setSignerInKeyring(nsecKey);
       console.log("✅ Successfully signed in with private key!");
 
       await this.showSigninSuccess();
@@ -198,11 +199,8 @@ export class SigninCommand implements BaseCommand {
       // Set the signer instance first
       setSignerInstance(signer);
 
-      // Save to config
-      const config = loadConfig();
-      config.signer = nbunksec;
-      config.pubkey = pubkey;
-      saveConfig(config);
+      // Save to keyring using setSignerInConfig
+      await setSignerInKeyring(nbunksec);
 
       console.log("✅ Successfully connected to bunker!");
 
@@ -225,7 +223,7 @@ export class SigninCommand implements BaseCommand {
         type: "input",
         name: "relayUrl",
         message: "Enter relay URL:",
-        default: "wss://relay.nsec.app",
+        default: DEFAULT_SIGNER_RELAY,
         validate: (input: string) => {
           if (!input.trim()) {
             return "Relay URL is required";
@@ -281,11 +279,8 @@ export class SigninCommand implements BaseCommand {
       // Set the signer instance
       setSignerInstance(signer);
 
-      // Save to config
-      const config = loadConfig();
-      config.signer = nbunksec;
-      config.pubkey = pubkey;
-      saveConfig(config);
+      // Save to keyring using setSignerInConfig
+      await setSignerInKeyring(nbunksec);
 
       console.log("✅ Successfully connected via QR code!");
 
@@ -304,9 +299,7 @@ export class SigninCommand implements BaseCommand {
       console.log("\n🎉 Sign-in Complete!");
       console.log("─".repeat(30));
       console.log(`🆔 Public Key: ${config.pubkey}`);
-      console.log(
-        `🔑 Signer: ${config.signer ? "***configured***" : "Not set"}`,
-      );
+      console.log(`🔑 Signer: ***stored in system keyring***`);
       console.log(`📡 Relays: ${config.relays.length} configured`);
       console.log(
         "\n✨ You're now ready to publish and discover code snippets!",

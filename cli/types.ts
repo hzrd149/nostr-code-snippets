@@ -6,12 +6,6 @@ export interface BaseCommand {
   setup(program: Command): void;
 }
 
-export interface NostrConfig {
-  signer?: string;
-  pubkey?: string;
-  relays: string[];
-}
-
 export interface CodeSnippet {
   id: string;
   content: string;

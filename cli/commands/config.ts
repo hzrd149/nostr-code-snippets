@@ -1,8 +1,13 @@
 import { Helpers } from "applesauce-core";
 import { Command } from "commander";
-import { setSignerInConfig } from "../../helpers/signer.js";
-import type { BaseCommand, NostrConfig } from "../types.js";
-import { loadConfig, saveConfig } from "../utils.js";
+import { setSignerInKeyring } from "../../helpers/signer.js";
+import type { BaseCommand } from "../types.js";
+import {
+  loadConfig,
+  saveConfig,
+  type NostrConfig,
+} from "../../helpers/config.js";
+import { DEFAULT_RELAYS } from "../../helpers/const";
 
 export class ConfigCommand implements BaseCommand {
   name = "config";
@@ -54,7 +59,7 @@ export class ConfigCommand implements BaseCommand {
       // Signer configuration
       if (options.signer) {
         try {
-          await setSignerInConfig(options.signer);
+          await setSignerInKeyring(options.signer);
           config = loadConfig(); // Reload config after signer update
           configChanged = true;
           console.log("🔑 Signer and public key updated");
@@ -147,7 +152,7 @@ export class ConfigCommand implements BaseCommand {
     console.log("\n⚙️  Current Configuration:");
     console.log("─".repeat(40));
 
-    console.log(`🔑 Signer: ${config.signer ? "***configured***" : "Not set"}`);
+    console.log(`🔑 Signer: ***stored in system keyring***`);
     console.log(`🆔 Public Key: ${config.pubkey ? config.pubkey : "Not set"}`);
     console.log(`📡 Relays (${config.relays.length}):`);
     config.relays.forEach((relay) => {
@@ -159,6 +164,7 @@ export class ConfigCommand implements BaseCommand {
       "   • Set a signer: nostr-code-snippets config --signer <nsec_or_nbunksec>",
     );
     console.log("   • Add more relays for better discovery");
+    console.log("   • Signer is securely stored in your system's keyring");
   }
 
   private async interactiveConfig(): Promise<void> {
@@ -191,11 +197,7 @@ export class ConfigCommand implements BaseCommand {
 
   private getDefaultConfig(): NostrConfig {
     return {
-      relays: [
-        "wss://relay.damus.io",
-        "wss://nos.lol",
-        "wss://relay.nostr.band",
-      ],
+      relays: DEFAULT_RELAYS,
     };
   }
 

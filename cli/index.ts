@@ -5,7 +5,9 @@ import { SearchCommand } from "./commands/search.js";
 import { ConfigCommand } from "./commands/config.js";
 import { McpCommand } from "./commands/mcp.js";
 import { SigninCommand } from "./commands/signin.js";
+import { WhoamiCommand } from "./commands/whoami.js";
 import { enableDebugLogging } from "../helpers/debug.js";
+import { setConfigPath } from "./utils.js";
 
 export function createCliProgram(): Command {
   const program = new Command();
@@ -23,6 +25,7 @@ export function createCliProgram(): Command {
   // Initialize and register commands
   const commands = [
     new SigninCommand(),
+    new WhoamiCommand(),
     new PublishCommand(),
     new ListCommand(),
     new SearchCommand(),
@@ -40,6 +43,7 @@ export function createCliProgram(): Command {
     console.log("Examples:");
     console.log("  $ nostr-code-snippets signin");
     console.log("  $ nostr-code-snippets signin nsec1...");
+    console.log("  $ nostr-code-snippets whoami");
     console.log(
       '  $ nostr-code-snippets publish ./my-script.js --title "Useful Script"',
     );
@@ -67,6 +71,13 @@ export async function runCli(): Promise<void> {
   const args = process.argv;
   if (args.includes("-v") || args.includes("--verbose")) {
     enableDebugLogging();
+  }
+
+  // Check for config path option and set it before parsing
+  const configIndex = args.indexOf("--config");
+  if (configIndex !== -1 && configIndex + 1 < args.length) {
+    const configPath = args[configIndex + 1];
+    if (configPath) setConfigPath(configPath);
   }
 
   // Parse command line arguments
