@@ -7,11 +7,8 @@ import {
 import { deletePassword, getPassword, setPassword } from "keytar";
 import { getConfigPath } from "./config";
 import { logger } from "./debug.js";
-import { pool } from "./nostr";
+import { pool } from "./nostr.js";
 import { registerShutdownHandler } from "./shutdown.js";
-
-// Setup nostr connect signer
-NostrConnectSigner.pool = pool;
 
 const log = logger.extend("signer");
 

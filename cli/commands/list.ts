@@ -10,6 +10,7 @@ import {
 } from "../../helpers/list.js";
 import type { BaseCommand } from "../types.js";
 import { formatSnippetForDisplay } from "../utils.js";
+import { getPublicKey } from "../../helpers/user";
 
 const log = logger.extend("list");
 
@@ -46,14 +47,14 @@ export class ListCommand implements BaseCommand {
         tags: options.tag,
       };
 
-      const result = await fetchUserSnippets(filters);
+      const pubkey = await getPublicKey();
+      if (!pubkey) throw new Error("No public key found");
+
+      const result = await fetchUserSnippets(pubkey, filters);
       const events = result.events;
 
       if (events.length === 0) {
         console.log("\n🔍 No snippets found.");
-        console.log(
-          "💡 Publish your first snippet with: nostr-code-snippets publish <file>",
-        );
         return;
       }
 

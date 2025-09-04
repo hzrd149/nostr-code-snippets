@@ -15,6 +15,9 @@ const pubkeyCache = new Map<ISigner, string>();
 
 /** Get the current user's public key - tries signer first, then falls back to config */
 export async function getPublicKey(): Promise<string | undefined> {
+  const config = loadConfig();
+  if (config.pubkey) return config.pubkey;
+
   // Try to get pubkey from signer first
   try {
     const signer = await getSigner();
@@ -28,13 +31,6 @@ export async function getPublicKey(): Promise<string | undefined> {
     log(
       `Failed to get signer: ${signerError instanceof Error ? signerError.message : signerError}`,
     );
-
-    // Fallback to config
-    const config = loadConfig();
-    if (config.pubkey) {
-      log("Fallback to config pubkey");
-      return config.pubkey;
-    }
 
     log("No pubkey found in signer or config");
     return undefined;

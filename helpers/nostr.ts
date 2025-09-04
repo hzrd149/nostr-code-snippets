@@ -5,6 +5,7 @@ import {
   createEventLoader,
 } from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
+import { NostrConnectSigner } from "applesauce-signers";
 import { loadConfig } from "./config";
 import { logger } from "./debug.js";
 import { registerShutdownHandler } from "./shutdown.js";
@@ -16,6 +17,8 @@ export const eventStore = new EventStore();
 export const pool = new RelayPool({
   keepAlive: 5000,
 });
+
+NostrConnectSigner.pool = pool;
 
 // Create loaders
 export const addressLoader = createAddressLoader(pool, {

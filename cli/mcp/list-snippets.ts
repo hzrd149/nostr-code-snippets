@@ -61,9 +61,7 @@ export function registerListSnippetsTool(server: McpServer) {
         const events = result.events;
 
         if (events.length === 0) {
-          return mcpInfo(
-            "No snippets found.\n💡 Publish your first snippet with: nostr-code-snippets publish <file>",
-          );
+          return mcpInfo("No snippets found.");
         }
 
         let formattedOutput: string;

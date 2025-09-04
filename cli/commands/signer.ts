@@ -629,7 +629,7 @@ export class SignerCommand implements BaseCommand {
       console.log("─".repeat(50));
       console.log("\n💡 Usage in CI/CD:");
       console.log("   export SIGNER=" + nbunksec);
-      console.log("   nostr-code-snippets publish <snippet>");
+      console.log("   nostr-code-snippets create <snippet>");
     } catch (error) {
       throw new Error(
         `Failed to create nbunksec via QR code: ${error instanceof Error ? error.message : error}`,

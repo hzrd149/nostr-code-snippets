@@ -3,9 +3,10 @@ import { setConfigPath } from "../helpers/config.js";
 import { enableDebugLogging } from "../helpers/debug.js";
 import { gracefulShutdown } from "../helpers/shutdown.js";
 import { ConfigCommand } from "./commands/config.js";
+import { FetchCommand } from "./commands/fetch.js";
 import { ListCommand } from "./commands/list.js";
 import { McpCommand } from "./commands/mcp.js";
-import { PublishCommand } from "./commands/publish.js";
+import { CreateCommand } from "./commands/create.js";
 import { SearchCommand } from "./commands/search.js";
 import { SignerCommand } from "./commands/signer.js";
 
@@ -25,7 +26,8 @@ export function createCliProgram(): Command {
   // Initialize and register commands
   const commands = [
     new SignerCommand(),
-    new PublishCommand(),
+    new CreateCommand(),
+    new FetchCommand(),
     new ListCommand(),
     new SearchCommand(),
     new ConfigCommand(),
@@ -44,8 +46,9 @@ export function createCliProgram(): Command {
     console.log("  $ nostr-code-snippets signer --connect");
     console.log("  $ nostr-code-snippets signer --connect nsec1...");
     console.log("  $ nostr-code-snippets signer --reset");
+    console.log("  $ nostr-code-snippets create ./my-script.js");
     console.log(
-      '  $ nostr-code-snippets publish ./my-script.js --title "Useful Script"',
+      "  $ nostr-code-snippets fetch nevent1abc123... --format detailed",
     );
     console.log(
       '  $ nostr-code-snippets search "react hooks" --language javascript',
@@ -54,6 +57,7 @@ export function createCliProgram(): Command {
     console.log(
       "  $ nostr-code-snippets config --add-relay wss://relay.nostr.band",
     );
+    console.log("  $ nostr-code-snippets config --editor code");
     console.log("");
     console.log("MCP Server Mode:");
     console.log("  $ nostr-code-snippets mcp");

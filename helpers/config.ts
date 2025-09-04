@@ -1,10 +1,12 @@
 import { readFileSync, existsSync } from "fs";
 import { join, resolve } from "path";
 import { DEFAULT_RELAYS } from "./const";
+import { getLanguageFromExtension } from "./languages.js";
 
 export interface NostrConfig {
   pubkey?: string;
   relays: string[];
+  editor?: string;
 }
 
 // Global config path - can be overridden by CLI option
@@ -63,41 +65,8 @@ export function readCodeFile(filePath: string): {
   const content = readFileSync(filePath, "utf-8");
   const extension = filePath.split(".").pop()?.toLowerCase();
 
-  // Map file extensions to language identifiers
-  const languageMap: Record<string, string> = {
-    js: "javascript",
-    jsx: "javascript",
-    ts: "typescript",
-    tsx: "typescript",
-    py: "python",
-    rb: "ruby",
-    go: "go",
-    rs: "rust",
-    java: "java",
-    cpp: "cpp",
-    c: "c",
-    cs: "csharp",
-    php: "php",
-    sh: "bash",
-    bash: "bash",
-    zsh: "zsh",
-    fish: "fish",
-    ps1: "powershell",
-    sql: "sql",
-    html: "html",
-    css: "css",
-    scss: "scss",
-    sass: "sass",
-    json: "json",
-    yaml: "yaml",
-    yml: "yaml",
-    xml: "xml",
-    md: "markdown",
-    dockerfile: "dockerfile",
-  };
-
   return {
     content,
-    language: extension ? languageMap[extension] : undefined,
+    language: extension ? getLanguageFromExtension(extension) : undefined,
   };
 }
