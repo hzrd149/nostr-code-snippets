@@ -6,8 +6,7 @@ import { ListCommand } from "./commands/list.js";
 import { McpCommand } from "./commands/mcp.js";
 import { PublishCommand } from "./commands/publish.js";
 import { SearchCommand } from "./commands/search.js";
-import { SigninCommand } from "./commands/signin.js";
-import { WhoamiCommand } from "./commands/whoami.js";
+import { SignerCommand } from "./commands/signer.js";
 
 export function createCliProgram(): Command {
   const program = new Command();
@@ -24,8 +23,7 @@ export function createCliProgram(): Command {
 
   // Initialize and register commands
   const commands = [
-    new SigninCommand(),
-    new WhoamiCommand(),
+    new SignerCommand(),
     new PublishCommand(),
     new ListCommand(),
     new SearchCommand(),
@@ -41,9 +39,10 @@ export function createCliProgram(): Command {
   program.on("--help", () => {
     console.log("");
     console.log("Examples:");
-    console.log("  $ nostr-code-snippets signin");
-    console.log("  $ nostr-code-snippets signin nsec1...");
-    console.log("  $ nostr-code-snippets whoami");
+    console.log("  $ nostr-code-snippets signer");
+    console.log("  $ nostr-code-snippets signer --connect");
+    console.log("  $ nostr-code-snippets signer --connect nsec1...");
+    console.log("  $ nostr-code-snippets signer --reset");
     console.log(
       '  $ nostr-code-snippets publish ./my-script.js --title "Useful Script"',
     );

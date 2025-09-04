@@ -106,7 +106,7 @@ export class ListCommand implements BaseCommand {
           userPubkey = await signer.getPublicKey();
         } catch (error) {
           throw new Error(
-            "No pubkey found in config and no signer available. Please run 'nostr-code-snippets signin' first.",
+            "No pubkey found in config and no signer available. Please run 'nostr-code-snippets signer --connect' first.",
           );
         }
       }

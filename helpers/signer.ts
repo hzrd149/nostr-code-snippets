@@ -4,7 +4,7 @@ import {
   SimpleSigner,
   type ISigner,
 } from "applesauce-signers";
-import { getPassword, setPassword } from "keytar";
+import { getPassword, setPassword, deletePassword } from "keytar";
 import { getConfigPath, loadConfig, saveConfig } from "./config";
 import { logger } from "./debug.js";
 import { pool } from "./nostr";
@@ -126,6 +126,32 @@ async function createSignerInstance(): Promise<ISigner> {
   } catch (error) {
     throw new Error(
       `Failed to create signer: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+}
+
+/**
+ * Clears the signer from the system keyring while keeping the pubkey in config
+ */
+export async function clearSignerFromKeyring(): Promise<void> {
+  try {
+    const configPath = getConfigPath();
+    log(`Clearing signer from keyring for config file: ${configPath}`);
+
+    // Delete the signer from keyring
+    const deleted = await deletePassword("nostr-code-snippets", configPath);
+
+    if (deleted) {
+      log("Signer successfully cleared from keyring");
+    } else {
+      log("No signer found in keyring to clear");
+    }
+
+    // Clear the signer instance
+    clearSignerInstance();
+  } catch (error) {
+    throw new Error(
+      `Failed to clear signer from keyring: ${error instanceof Error ? error.message : error}`,
     );
   }
 }

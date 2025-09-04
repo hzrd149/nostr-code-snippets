@@ -5,29 +5,120 @@ import inquirer from "inquirer";
 import { nsecEncode } from "nostr-tools/nip19";
 import { bytesToHex } from "nostr-tools/utils";
 import * as qrcode from "qrcode-terminal";
-import { logger } from "../../helpers/debug.js";
-import { setSignerInKeyring, setSignerInstance } from "../../helpers/signer.js";
-import type { BaseCommand } from "../types.js";
 import { loadConfig } from "../../helpers/config.js";
 import { DEFAULT_SIGNER_RELAY } from "../../helpers/const";
+import { logger } from "../../helpers/debug.js";
+import {
+  getSigner,
+  setSignerInKeyring,
+  setSignerInstance,
+  clearSignerFromKeyring,
+} from "../../helpers/signer.js";
+import type { BaseCommand } from "../types.js";
 
-const log = logger.extend("signin");
+const log = logger.extend("signer");
 
-export class SigninCommand implements BaseCommand {
-  name = "signin";
-  description = "Sign in with your Nostr identity";
+export class SignerCommand implements BaseCommand {
+  name = "signer";
+  description = "Manage your Nostr signer identity";
 
   setup(program: Command): void {
     program
       .command(this.name)
       .description(this.description)
-      .argument("[signer]", "Optional nsec or nbunksec to sign in with")
-      .action(async (signer) => {
-        await this.execute(signer);
+      .argument(
+        "[signer]",
+        "Optional nsec or nbunksec to sign in with (requires --connect)",
+      )
+      .option("-c, --connect", "Connect/sign in with a new signer")
+      .option(
+        "-r, --reset",
+        "Clear signer from keyring (keeps pubkey in config)",
+      )
+      .action(async (signerArg, options) => {
+        if (options.connect) {
+          await this.executeConnect(signerArg);
+        } else if (options.reset) {
+          await this.executeReset();
+        } else {
+          await this.executeStatus();
+        }
       });
   }
 
-  async execute(signerArg?: string): Promise<void> {
+  async executeStatus(): Promise<void> {
+    try {
+      let pubkey: string | undefined;
+      let source: string;
+      let signerConnected = false;
+
+      // Try to get pubkey from signer first, fallback to config
+      try {
+        const signer = await getSigner();
+        pubkey = await signer.getPublicKey();
+        source = "active signer";
+        signerConnected = true;
+        log("Got pubkey from active signer");
+      } catch (signerError) {
+        log(
+          `Failed to get signer: ${signerError instanceof Error ? signerError.message : signerError}`,
+        );
+
+        // Fallback to config
+        const config = loadConfig();
+        pubkey = config.pubkey;
+        source = "config (signer not connected)";
+        signerConnected = false;
+        log("Fallback to config pubkey");
+      }
+
+      if (!pubkey) {
+        console.log("❌ No signer identity configured");
+        console.log("\n💡 To set up your signer identity:");
+        console.log("   nostr-code-snippets signer --connect");
+        console.log(
+          "   nostr-code-snippets signer --connect <nsec_or_nbunksec>",
+        );
+        process.exit(1);
+      }
+
+      // Display the signer status information
+      console.log(`🆔 Public Key: ${pubkey}`);
+
+      // Show connection status with clear indicators
+      if (signerConnected) {
+        console.log("📍 Status: 🟢 Connected (signer active)");
+      } else {
+        console.log("📍 Status: 🔴 Not connected (config only)");
+        console.log("   💡 Use 'signer --connect' to activate signer");
+      }
+
+      // Convert to npub format for easier sharing
+      try {
+        const { nip19 } = await import("nostr-tools");
+        const npub = nip19.npubEncode(pubkey);
+        console.log(`🔗 npub: ${npub}`);
+      } catch (error) {
+        log(
+          `Failed to encode npub: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+
+      // Show additional info if signer is connected
+      if (signerConnected) {
+        const config = loadConfig();
+        console.log(`📡 Relays: ${config.relays.length} configured`);
+      }
+    } catch (error) {
+      console.error(
+        "❌ Failed to get signer status:",
+        error instanceof Error ? error.message : error,
+      );
+      process.exit(1);
+    }
+  }
+
+  async executeConnect(signerArg?: string): Promise<void> {
     try {
       if (signerArg) {
         // Direct signin with provided signer
@@ -38,7 +129,58 @@ export class SigninCommand implements BaseCommand {
       }
     } catch (error) {
       console.error(
-        "❌ Signin failed:",
+        "❌ Signer connection failed:",
+        error instanceof Error ? error.message : error,
+      );
+      process.exit(1);
+    }
+  }
+
+  async executeReset(): Promise<void> {
+    try {
+      // Check if there's a pubkey in config to preserve
+      const config = loadConfig();
+
+      if (!config.pubkey) {
+        console.log("❌ No signer identity found to reset");
+        console.log("\n💡 To set up a signer identity:");
+        console.log("   nostr-code-snippets signer --connect");
+        return;
+      }
+
+      console.log("\n🔄 Resetting Signer");
+      console.log("─".repeat(30));
+      console.log("This will clear your signer from the keyring while keeping");
+      console.log("your public key in the config for read-only operations.\n");
+
+      // Ask for confirmation
+      const { confirmed } = await inquirer.prompt([
+        {
+          type: "confirm",
+          name: "confirmed",
+          message: "Are you sure you want to reset your signer?",
+          default: false,
+        },
+      ]);
+
+      if (!confirmed) {
+        console.log("❌ Reset cancelled");
+        return;
+      }
+
+      // Clear the signer from keyring
+      await clearSignerFromKeyring();
+
+      console.log("✅ Signer reset complete!");
+      console.log("─".repeat(30));
+      console.log(`🆔 Public Key: ${config.pubkey} (preserved)`);
+      console.log("🔑 Signer: ***cleared from keyring***");
+      console.log("📍 Status: 🔴 Not connected (config only)");
+      console.log("\n💡 To reconnect your signer:");
+      console.log("   nostr-code-snippets signer --connect");
+    } catch (error) {
+      console.error(
+        "❌ Signer reset failed:",
         error instanceof Error ? error.message : error,
       );
       process.exit(1);
@@ -47,32 +189,32 @@ export class SigninCommand implements BaseCommand {
 
   private async signInWithSigner(signerValue: string): Promise<void> {
     log(
-      `Attempting to sign in with provided signer: ${signerValue.substring(0, 10)}...`,
+      `Attempting to connect signer with provided value: ${signerValue.substring(0, 10)}...`,
     );
 
     try {
       await setSignerInKeyring(signerValue);
-      console.log("✅ Successfully signed in!");
+      console.log("✅ Signer successfully connected!");
 
       // Show user info
       await this.showSigninSuccess();
     } catch (error) {
       throw new Error(
-        `Failed to sign in with provided signer: ${error instanceof Error ? error.message : error}`,
+        `Failed to connect signer: ${error instanceof Error ? error.message : error}`,
       );
     }
   }
 
   private async interactiveSignin(): Promise<void> {
-    console.log("\n🔐 Nostr Sign-In");
+    console.log("\n🔐 Signer Connection");
     console.log("─".repeat(40));
-    console.log("Choose how you'd like to sign in:\n");
+    console.log("Choose how you'd like to connect your signer:\n");
 
     const { method } = await inquirer.prompt([
       {
         type: "list",
         name: "method",
-        message: "How would you like to sign in?",
+        message: "How would you like to connect?",
         choices: [
           {
             name: "🔑 Private Key (nsec) - Enter your private key directly",
@@ -104,7 +246,7 @@ export class SigninCommand implements BaseCommand {
   }
 
   private async signInWithNsec(): Promise<void> {
-    console.log("\n🔑 Private Key Sign-In");
+    console.log("\n🔑 Private Key Connection");
     console.log("─".repeat(30));
 
     const { privateKey } = await inquirer.prompt([
@@ -113,19 +255,14 @@ export class SigninCommand implements BaseCommand {
         name: "privateKey",
         message: "Enter your private key (hex or nsec format):",
         validate: (input: string) => {
-          if (!input.trim()) {
-            return "Private key is required";
-          }
+          if (!input.trim()) return "Private key is required";
 
           // Check if it's hex (64 chars) or nsec format
           const trimmed = input.trim();
-          if (trimmed.startsWith("nsec1")) {
-            return true;
-          }
+          if (trimmed.startsWith("nsec1")) return true;
 
-          if (trimmed.length === 64 && /^[a-fA-F0-9]+$/.test(trimmed)) {
+          if (trimmed.length === 64 && /^[a-fA-F0-9]+$/.test(trimmed))
             return true;
-          }
 
           return "Please enter a valid private key (64-char hex or nsec1...)";
         },
@@ -143,18 +280,18 @@ export class SigninCommand implements BaseCommand {
       }
 
       await setSignerInKeyring(nsecKey);
-      console.log("✅ Successfully signed in with private key!");
+      console.log("✅ Signer successfully connected with private key!");
 
       await this.showSigninSuccess();
     } catch (error) {
       throw new Error(
-        `Failed to sign in with private key: ${error instanceof Error ? error.message : error}`,
+        `Failed to connect signer with private key: ${error instanceof Error ? error.message : error}`,
       );
     }
   }
 
   private async signInWithBunker(): Promise<void> {
-    console.log("\n🔗 Bunker URI Sign-In");
+    console.log("\n🔗 Bunker URI Connection");
     console.log("─".repeat(30));
     console.log("Enter your NIP-46 bunker:// URI to connect\n");
 
@@ -164,13 +301,10 @@ export class SigninCommand implements BaseCommand {
         name: "bunkerURI",
         message: "Bunker URI:",
         validate: (input: string) => {
-          if (!input.trim()) {
-            return "Bunker URI is required";
-          }
+          if (!input.trim()) return "Bunker URI is required";
 
-          if (!input.trim().startsWith("bunker://")) {
+          if (!input.trim().startsWith("bunker://"))
             return "URI must start with bunker://";
-          }
 
           return true;
         },
@@ -213,7 +347,7 @@ export class SigninCommand implements BaseCommand {
   }
 
   private async signInWithQR(): Promise<void> {
-    console.log("\n📱 QR Code Sign-In");
+    console.log("\n📱 QR Code Connection");
     console.log("─".repeat(30));
     console.log("Creating a new connection for you to scan...\n");
 
@@ -290,7 +424,7 @@ export class SigninCommand implements BaseCommand {
       await this.showSigninSuccess();
     } catch (error) {
       throw new Error(
-        `Failed to sign in via QR code: ${error instanceof Error ? error.message : error}`,
+        `Failed to connect signer via QR code: ${error instanceof Error ? error.message : error}`,
       );
     }
   }
@@ -299,7 +433,7 @@ export class SigninCommand implements BaseCommand {
     try {
       const config = loadConfig();
 
-      console.log("\n🎉 Sign-in Complete!");
+      console.log("\n🎉 Signer Connection Complete!");
       console.log("─".repeat(30));
       console.log(`🆔 Public Key: ${config.pubkey}`);
       console.log(`🔑 Signer: ***stored in system keyring***`);
@@ -308,7 +442,7 @@ export class SigninCommand implements BaseCommand {
         "\n✨ You're now ready to publish and discover code snippets!",
       );
     } catch (error) {
-      log(`Warning: Could not show signin success info: ${error}`);
+      log(`Warning: Could not show connection success info: ${error}`);
     }
   }
 }
