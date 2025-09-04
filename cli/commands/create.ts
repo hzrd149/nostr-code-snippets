@@ -523,9 +523,16 @@ export class CreateCommand implements BaseCommand {
       // Publish to relays
       const publishPromises = allRelays.map(async (relayUrl) => {
         try {
-          await pool.publish([relayUrl], signedEvent);
-          logger(`   ✅ Published to ${relayUrl}`);
-          return { relay: relayUrl, success: true };
+          const response = await pool.relay(relayUrl).publish(signedEvent);
+          if (response.ok) {
+            logger(`   ✅ Published to ${relayUrl}`);
+            return { relay: relayUrl, success: true };
+          } else {
+            logger(
+              `   ❌ Failed to publish to ${relayUrl}: ${response.message}`,
+            );
+            return { relay: relayUrl, success: false, error: response.message };
+          }
         } catch (error) {
           logger(`   ❌ Failed to publish to ${relayUrl}: ${error}`);
           return { relay: relayUrl, success: false, error };

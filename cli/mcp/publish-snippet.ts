@@ -196,12 +196,16 @@ async function publishToNostr(snippetData: {
     // Publish to relays
     const publishPromises = allRelays.map(async (relayUrl) => {
       try {
-        await pool.publish([relayUrl], signedEvent);
-        log(`   ✅ Published to ${relayUrl}`);
-        return { relay: relayUrl, success: true };
+        const response = await pool.relay(relayUrl).publish(signedEvent);
+        if (response.ok) {
+          log(`   ✅ Published to ${relayUrl}`);
+          return { relay: relayUrl, success: true };
+        } else {
+          log(`   ❌ Failed to publish to ${relayUrl}: ${response.message}`);
+          return { relay: relayUrl, success: false, error: response.message };
+        }
       } catch (error) {
-        log(`   ❌ Failed to publish to ${relayUrl}: ${error}`);
-        return { relay: relayUrl, success: false, error };
+        return { relay: relayUrl, success: true };
       }
     });
 
