@@ -33,9 +33,6 @@ jobs:
           - os: windows-latest
             platform: windows-x64
             target: windows-x64
-          - os: windows-latest
-            platform: windows-arm64
-            target: windows-arm64
 
     steps:
       - name: Checkout code
