@@ -249,7 +249,10 @@ export class SigninCommand implements BaseCommand {
       });
 
       // Get the nostr-connect:// URI
-      const connectURI = signer.getNostrConnectURI();
+      const connectURI = signer.getNostrConnectURI({
+        name: "nostr-code-snippets",
+        permissions: NostrConnectSigner.buildSigningPermissions([1337]),
+      });
 
       console.log("📱 Scan this QR code with your Nostr app:\n");
 

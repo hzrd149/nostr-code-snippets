@@ -1,8 +1,20 @@
 import { Command } from "commander";
-import { logger } from "../../helpers/debug.js";
-import type { BaseCommand } from "../types.js";
-import { formatSnippetForDisplay } from "../utils.js";
+import { SimplePool, type NostrEvent } from "nostr-tools";
+import { neventEncode } from "nostr-tools/nip19";
 import { loadConfig } from "../../helpers/config.js";
+import { logger } from "../../helpers/debug.js";
+import { getReadRelays } from "../../helpers/nostr.js";
+import { getSigner } from "../../helpers/signer.js";
+import {
+  getSnippetCreatedAt,
+  getSnippetLanguage,
+  getSnippetTags,
+  getSnippetTitle,
+  snippetMatchesLanguage,
+  snippetMatchesTag,
+} from "../../helpers/snippet.js";
+import type { BaseCommand } from "../types.js";
+import { formatSnippetForDisplay, createClickableLink } from "../utils.js";
 
 export class ListCommand implements BaseCommand {
   name = "list";
@@ -36,14 +48,13 @@ export class ListCommand implements BaseCommand {
       const config = loadConfig();
       const limit = parseInt(options.limit);
 
-      // TODO: Implement actual Nostr querying logic
-      const snippets = await this.fetchUserSnippets(config, {
+      const events = await this.fetchUserSnippets(config, {
         limit,
         language: options.language,
         tag: options.tag,
       });
 
-      if (snippets.length === 0) {
+      if (events.length === 0) {
         console.log("\n🔍 No snippets found.");
         console.log(
           "💡 Publish your first snippet with: nostr-code-snippets publish <file>",
@@ -52,21 +63,21 @@ export class ListCommand implements BaseCommand {
       }
 
       console.log(
-        `\n📊 Found ${snippets.length} snippet${snippets.length === 1 ? "" : "s"}:`,
+        `\n📊 Found ${events.length} snippet${events.length === 1 ? "" : "s"}:`,
       );
 
       switch (options.format) {
         case "json":
-          console.log(JSON.stringify(snippets, null, 2));
+          console.log(JSON.stringify(events, null, 2));
           break;
         case "detailed":
-          snippets.forEach((snippet, index) => {
-            console.log(`\n${index + 1}. ${formatSnippetForDisplay(snippet)}`);
+          events.forEach((event, index) => {
+            console.log(`\n${index + 1}. ${formatSnippetForDisplay(event)}`);
             console.log("─".repeat(50));
           });
           break;
         default: // table
-          this.displayTable(snippets);
+          this.displayTable(events);
       }
     } catch (error) {
       console.error(
@@ -77,75 +88,107 @@ export class ListCommand implements BaseCommand {
     }
   }
 
-  private async fetchUserSnippets(config: any, filters: any): Promise<any[]> {
-    // TODO: Implement actual Nostr querying logic
-    // This would involve:
-    // 1. Connecting to relays
-    // 2. Querying for user's events
-    // 3. Filtering by criteria
-    // 4. Parsing and returning results
-
+  private async fetchUserSnippets(
+    config: any,
+    filters: any,
+  ): Promise<NostrEvent[]> {
     logger("🔍 Searching your snippets...");
-    logger(`   Relays: ${config.relays.join(", ")}`);
     if (filters.language) logger(`   Language: ${filters.language}`);
     if (filters.tag) logger(`   Tag: ${filters.tag}`);
 
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    try {
+      // Get user's public key
+      let userPubkey = config.pubkey;
 
-    // Return mock data for now
-    return [
-      {
-        id: "1",
-        title: "React Hook Example",
-        language: "javascript",
-        tags: ["react", "hooks", "code"],
-        author: "you",
-        createdAt: new Date(Date.now() - 86400000), // 1 day ago
-        content:
-          "const [count, setCount] = useState(0);\n\nreturn (\n  <button onClick={() => setCount(count + 1)}>\n    Count: {count}\n  </button>\n);",
-      },
-      {
-        id: "2",
-        title: "Python List Comprehension",
-        language: "python",
-        tags: ["python", "list-comprehension", "code"],
-        author: "you",
-        createdAt: new Date(Date.now() - 172800000), // 2 days ago
-        content:
-          "squares = [x**2 for x in range(10) if x % 2 == 0]\nprint(squares)  # [0, 4, 16, 36, 64]",
-      },
-    ]
-      .filter((snippet) => {
-        if (filters.language && snippet.language !== filters.language)
-          return false;
-        if (filters.tag && !snippet.tags.includes(filters.tag)) return false;
-        return true;
-      })
-      .slice(0, filters.limit);
+      if (!userPubkey) {
+        try {
+          const signer = await getSigner();
+          userPubkey = await signer.getPublicKey();
+        } catch (error) {
+          throw new Error(
+            "No pubkey found in config and no signer available. Please run 'nostr-code-snippets signin' first.",
+          );
+        }
+      }
+
+      logger(`   Searching for snippets from pubkey: ${userPubkey}`);
+
+      // Get the optimal set of relays to read from (includes outbox relays)
+      const readRelays = await getReadRelays();
+      logger(
+        `   Reading from ${readRelays.length} relays: ${readRelays.join(", ")}`,
+      );
+
+      // Create a simple pool for querying
+      const simplePool = new SimplePool();
+
+      // Query for kind 1337 events from the user
+      const filter = {
+        kinds: [1337], // Code snippet kind from NIP-C0
+        authors: [userPubkey],
+        limit: filters.limit * 2, // Get more to account for filtering
+      };
+
+      logger(`   Querying with filter: ${JSON.stringify(filter)}`);
+
+      // Get events from relays
+      const events = await simplePool.querySync(readRelays, filter);
+
+      logger(`   Found ${events.length} raw events`);
+
+      // Close the pool to clean up connections
+      simplePool.close(readRelays);
+
+      // Filter and sort events
+      const filteredEvents = events
+        .filter((event) => {
+          // Apply filters
+          if (
+            filters.language &&
+            !snippetMatchesLanguage(event, filters.language)
+          ) {
+            return false;
+          }
+          if (filters.tag && !snippetMatchesTag(event, filters.tag)) {
+            return false;
+          }
+          return true;
+        })
+        .sort(
+          (a, b) =>
+            getSnippetCreatedAt(b).getTime() - getSnippetCreatedAt(a).getTime(),
+        ) // Sort by newest first
+        .slice(0, filters.limit);
+
+      logger(`   Filtered to ${filteredEvents.length} matching snippets`);
+      return filteredEvents;
+    } catch (error) {
+      logger(`   Error fetching snippets: ${error}`);
+      throw error;
+    }
   }
 
-  private displayTable(snippets: any[]): void {
+  private displayTable(events: NostrEvent[]): void {
     const maxTitleLength = 30;
     const maxLanguageLength = 12;
 
     // Header
     console.log(
-      "\n┌─────┬─" +
+      "\n┌────────┬─" +
         "─".repeat(maxTitleLength) +
         "─┬─" +
         "─".repeat(maxLanguageLength) +
         "─┬─────────────┬──────────────┐",
     );
     console.log(
-      "│ ID  │ " +
+      "│ ID     │ " +
         "Title".padEnd(maxTitleLength) +
         " │ " +
         "Language".padEnd(maxLanguageLength) +
         " │ Tags        │ Created      │",
     );
     console.log(
-      "├─────┼─" +
+      "├────────┼─" +
         "─".repeat(maxTitleLength) +
         "─┼─" +
         "─".repeat(maxLanguageLength) +
@@ -153,28 +196,38 @@ export class ListCommand implements BaseCommand {
     );
 
     // Rows
-    snippets.forEach((snippet, index) => {
-      const id = (index + 1).toString().padEnd(3);
-      const title = (snippet.title || "Untitled")
+    events.forEach((event) => {
+      const nevent = neventEncode({
+        id: event.id,
+        author: event.pubkey,
+        kind: event.kind,
+      });
+      const url = `https://njump.me/${nevent}`;
+      const shortId = event.id.substring(0, 6);
+      const clickableId = createClickableLink(url, shortId.padEnd(6));
+
+      const title = getSnippetTitle(event)
         .substring(0, maxTitleLength)
         .padEnd(maxTitleLength);
-      const language = (snippet.language || "Unknown")
+      const language = (getSnippetLanguage(event) || "Unknown")
         .substring(0, maxLanguageLength)
         .padEnd(maxLanguageLength);
-      const tags = snippet.tags
+      const tags = getSnippetTags(event)
         .slice(0, 2)
         .join(",")
         .substring(0, 11)
         .padEnd(11);
-      const created = new Date(snippet.createdAt)
+      const created = getSnippetCreatedAt(event)
         .toLocaleDateString()
         .padEnd(12);
 
-      console.log(`│ ${id} │ ${title} │ ${language} │ ${tags} │ ${created} │`);
+      console.log(
+        `│ ${clickableId} │ ${title} │ ${language} │ ${tags} │ ${created} │`,
+      );
     });
 
     console.log(
-      "└─────┴─" +
+      "└────────┴─" +
         "─".repeat(maxTitleLength) +
         "─┴─" +
         "─".repeat(maxLanguageLength) +

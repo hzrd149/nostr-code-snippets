@@ -79,13 +79,6 @@ export class WhoamiCommand implements BaseCommand {
           `Failed to encode npub: ${error instanceof Error ? error.message : error}`,
         );
       }
-
-      console.log("\n💡 Tips:");
-      console.log("   • Share your npub with others to be found on Nostr");
-      console.log("   • Your public key identifies your published snippets");
-      if (source === "config") {
-        console.log("   • Run without --read-only to verify signer access");
-      }
     } catch (error) {
       console.error(
         "❌ Failed to get identity:",
