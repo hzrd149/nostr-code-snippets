@@ -4,7 +4,7 @@ import {
   createEventLoader,
 } from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
-import { loadConfig } from "../cli/utils";
+import { loadConfig } from "./config";
 
 export const eventStore = new EventStore();
 export const pool = new RelayPool();

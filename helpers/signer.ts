@@ -4,11 +4,10 @@ import {
   SimpleSigner,
   type ISigner,
 } from "applesauce-signers";
-import { loadConfig, saveConfig, getConfigPath } from "../cli/utils.js";
+import { getPassword, setPassword } from "keytar";
+import { getConfigPath, loadConfig, saveConfig } from "./config";
 import { logger } from "./debug.js";
 import { pool } from "./nostr";
-
-import { getPassword, setPassword } from "keytar";
 
 // Setup nostr connect signer
 NostrConnectSigner.pool = pool;

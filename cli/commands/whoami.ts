@@ -1,8 +1,8 @@
 import { Command } from "commander";
-import { getSigner } from "../../helpers/signer.js";
-import { loadConfig } from "../utils.js";
-import type { BaseCommand } from "../types.js";
+import { loadConfig } from "../../helpers/config.js";
 import { logger } from "../../helpers/debug.js";
+import { getSigner } from "../../helpers/signer.js";
+import type { BaseCommand } from "../types.js";
 
 const log = logger.extend("whoami");
 

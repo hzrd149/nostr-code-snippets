@@ -1,13 +1,13 @@
 import { Command } from "commander";
-import { PublishCommand } from "./commands/publish.js";
-import { ListCommand } from "./commands/list.js";
-import { SearchCommand } from "./commands/search.js";
+import { setConfigPath } from "../helpers/config.js";
+import { enableDebugLogging } from "../helpers/debug.js";
 import { ConfigCommand } from "./commands/config.js";
+import { ListCommand } from "./commands/list.js";
 import { McpCommand } from "./commands/mcp.js";
+import { PublishCommand } from "./commands/publish.js";
+import { SearchCommand } from "./commands/search.js";
 import { SigninCommand } from "./commands/signin.js";
 import { WhoamiCommand } from "./commands/whoami.js";
-import { enableDebugLogging } from "../helpers/debug.js";
-import { setConfigPath } from "./utils.js";
 
 export function createCliProgram(): Command {
   const program = new Command();
