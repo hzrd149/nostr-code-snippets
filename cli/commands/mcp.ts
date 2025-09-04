@@ -93,9 +93,15 @@ export class McpCommand implements BaseCommand {
             .max(50)
             .default(10)
             .describe("Maximum number of results"),
+          extraRelays: z
+            .array(z.string())
+            .optional()
+            .describe(
+              "Additional relays to search (will be checked for NIP-50 support)",
+            ),
         },
       },
-      async ({ query, language, limit }) => {
+      async ({ query, language, limit, extraRelays }) => {
         if (verbose) log(`Searching for "${query}"`);
 
         try {
@@ -107,6 +113,7 @@ export class McpCommand implements BaseCommand {
             query,
             language,
             limit,
+            extraRelays,
           });
 
           if (searchResult.events.length === 0) {

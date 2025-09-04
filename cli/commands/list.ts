@@ -21,13 +21,9 @@ export class ListCommand implements BaseCommand {
     program
       .command(this.name)
       .description(this.description)
-      .option(
-        "-l, --limit <number>",
-        "Maximum number of snippets to display",
-        "10",
-      )
-      .option("--language <language>", "Filter by programming language")
-      .option("--tag <tag>", "Filter by tag")
+      .option("--limit <number>", "Maximum number of snippets to display", "10")
+      .option("-l, --language <language>", "Filter by programming language")
+      .option("-t, --tag <tag>", "Filter by tag")
       .option(
         "--format <format>",
         "Output format (table|json|detailed)",
@@ -46,7 +42,7 @@ export class ListCommand implements BaseCommand {
 
       const filters: SnippetFilters = {
         limit,
-        language: options.language,
+        language: options.language?.toLowerCase(),
         tags: options.tag,
       };
 

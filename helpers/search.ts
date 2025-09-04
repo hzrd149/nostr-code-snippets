@@ -19,6 +19,7 @@ export interface SearchFilters {
   language?: string;
   author?: string;
   limit?: number;
+  extraRelays?: string[];
 }
 
 export interface RelayInfo {
@@ -60,7 +61,7 @@ function supportsNIP50(relayInfo: RelayInfo): boolean {
 /**
  * Get search relays, checking NIP-50 support
  */
-async function getSearchRelays(): Promise<string[]> {
+async function getSearchRelays(extraRelays?: string[]): Promise<string[]> {
   let searchRelays: string[] = [];
 
   try {
@@ -85,6 +86,18 @@ async function getSearchRelays(): Promise<string[]> {
   if (searchRelays.length === 0) {
     searchRelays = DEFAULT_SEARCH_RELAYS;
     log(`Using default search relays: ${searchRelays.join(", ")}`);
+  }
+
+  // Add extra relays if provided
+  if (extraRelays && extraRelays.length > 0) {
+    // Deduplicate relays
+    const uniqueExtraRelays = extraRelays.filter(
+      (relay) => !searchRelays.includes(relay),
+    );
+    searchRelays = [...searchRelays, ...uniqueExtraRelays];
+    log(
+      `Added ${uniqueExtraRelays.length} extra relays: ${uniqueExtraRelays.join(", ")}`,
+    );
   }
 
   return searchRelays;
@@ -174,7 +187,7 @@ export async function searchCodeSnippets(
 
   try {
     // Get search relays
-    const searchRelays = await getSearchRelays();
+    const searchRelays = await getSearchRelays(filters.extraRelays);
 
     if (searchRelays.length === 0)
       throw new Error("No search relays available");

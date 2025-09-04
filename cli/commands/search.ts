@@ -17,27 +17,31 @@ export class SearchCommand implements BaseCommand {
       .command(this.name)
       .description(this.description)
       .argument("<query>", "Search query for code snippets")
+      .option("--limit <number>", "Maximum number of results to return", "10")
+      .option("-l, --language <language>", "Filter by programming language")
       .option(
-        "-l, --limit <number>",
-        "Maximum number of results to return",
-        "10",
-      )
-      .option("--language <language>", "Filter by programming language")
-      .option(
-        "--tag <tag>",
+        "-t, --tag <tag>",
         "Filter by tag (can be used multiple times)",
         (value: string, previous: string[]) => {
           return previous ? [...previous, value] : [value];
         },
         [] as string[],
       )
-      .option("--author <author>", "Filter by author (npub or hex)")
+      .option("-a, --author <author>", "Filter by author (npub or hex)")
       .option(
         "--format <format>",
         "Output format (table|json|detailed)",
         "detailed",
       )
       .option("--sort <sort>", "Sort by (relevance|date|author)", "relevance")
+      .option(
+        "-r, --relay <relay>",
+        "Additional relay to search (can be used multiple times)",
+        (value: string, previous: string[]) => {
+          return previous ? [...previous, value] : [value];
+        },
+        [] as string[],
+      )
       .action(async (query: string, options) => {
         await this.execute(query, options);
       });
@@ -55,6 +59,8 @@ export class SearchCommand implements BaseCommand {
       if (options.tag && options.tag.length > 0)
         searchParams.push(`Tags: ${options.tag.join(", ")}`);
       if (options.author) searchParams.push(`Author: ${options.author}`);
+      if (options.relay && options.relay.length > 0)
+        searchParams.push(`Extra relays: ${options.relay.join(", ")}`);
       if (searchParams.length > 0) {
         console.log(`   Filters: ${searchParams.join(", ")}`);
       }
@@ -66,6 +72,7 @@ export class SearchCommand implements BaseCommand {
         language: options.language,
         tags: options.tag.length > 0 ? options.tag : undefined,
         author: options.author,
+        extraRelays: options.relay.length > 0 ? options.relay : undefined,
       };
 
       // Execute search using NIP-50
