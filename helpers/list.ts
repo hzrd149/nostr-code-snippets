@@ -5,7 +5,7 @@ import {
 } from "applesauce-core";
 import { type Filter, type NostrEvent } from "nostr-tools";
 import { neventEncode } from "nostr-tools/nip19";
-import { lastValueFrom } from "rxjs";
+import { lastValueFrom, startWith } from "rxjs";
 import { logger } from "./debug.js";
 import { eventStore, getReadRelays, pool } from "./nostr.js";
 import {
@@ -33,6 +33,7 @@ export interface SnippetListResult {
  * Fetch user's published code snippets from Nostr relays
  */
 export async function fetchUserSnippets(
+  userPubkey: string,
   filters: SnippetFilters = {},
 ): Promise<SnippetListResult> {
   log("🔍 Searching your snippets...");
@@ -40,15 +41,6 @@ export async function fetchUserSnippets(
   if (filters.tags) log(`   Tags: ${filters.tags.join(", ")}`);
 
   try {
-    // Get user's public key using the centralized method
-    const userPubkey = await getPublicKey();
-
-    if (!userPubkey) {
-      throw new Error(
-        "No pubkey found in config and no signer available. Please run 'nostr-code-snippets signer --connect' first.",
-      );
-    }
-
     log(`   Searching for snippets from pubkey: ${userPubkey}`);
 
     // Get the optimal set of relays to read from (includes outbox relays)
@@ -79,6 +71,8 @@ export async function fetchUserSnippets(
         mapEventsToTimeline(),
         // Timeout after 10 seconds
         simpleTimeout(10_000),
+        // Start with an empty array if no events are found
+        startWith([]),
       ),
     );
 

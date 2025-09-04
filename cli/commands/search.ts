@@ -72,11 +72,13 @@ export class SearchCommand implements BaseCommand {
         language: options.language,
         tags: options.tag.length > 0 ? options.tag : undefined,
         author: options.author,
-        extraRelays: options.relay.length > 0 ? options.relay : undefined,
       };
 
       // Execute search using NIP-50
-      const searchResult = await searchCodeSnippets(searchFilters);
+      const searchResult = await searchCodeSnippets(
+        searchFilters,
+        options.relay,
+      );
 
       if (searchResult.events.length === 0) {
         console.log("\n🔍 No snippets found matching your search.");

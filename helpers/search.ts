@@ -3,13 +3,17 @@ import {
   mapEventsToTimeline,
   simpleTimeout,
 } from "applesauce-core";
-import type { Filter, NostrEvent } from "nostr-tools";
-import { endWith, firstValueFrom, lastValueFrom } from "rxjs";
+import { nip19, type Filter, type NostrEvent } from "nostr-tools";
+import { endWith, firstValueFrom, lastValueFrom, startWith } from "rxjs";
 import { DEFAULT_SEARCH_RELAYS } from "./const.js";
 import { logger } from "./debug.js";
-import { eventStore, pool } from "./nostr.js";
+import { eventStore, getReadRelays, pool } from "./nostr.js";
 import { getPublicKey, getUserSearchRelays } from "./user.js";
-import { normalizeToPubkey } from "applesauce-core/helpers";
+import {
+  getTagValue,
+  mergeRelaySets,
+  normalizeToPubkey,
+} from "applesauce-core/helpers";
 
 const log = logger.extend("search");
 
@@ -19,7 +23,6 @@ export interface SearchFilters {
   language?: string;
   author?: string;
   limit?: number;
-  extraRelays?: string[];
 }
 
 export interface RelayInfo {
@@ -61,7 +64,7 @@ function supportsNIP50(relayInfo: RelayInfo): boolean {
 /**
  * Get search relays, checking NIP-50 support
  */
-async function getSearchRelays(extraRelays?: string[]): Promise<string[]> {
+async function getSearchRelays(): Promise<string[]> {
   let searchRelays: string[] = [];
 
   try {
@@ -86,18 +89,6 @@ async function getSearchRelays(extraRelays?: string[]): Promise<string[]> {
   if (searchRelays.length === 0) {
     searchRelays = DEFAULT_SEARCH_RELAYS;
     log(`Using default search relays: ${searchRelays.join(", ")}`);
-  }
-
-  // Add extra relays if provided
-  if (extraRelays && extraRelays.length > 0) {
-    // Deduplicate relays
-    const uniqueExtraRelays = extraRelays.filter(
-      (relay) => !searchRelays.includes(relay),
-    );
-    searchRelays = [...searchRelays, ...uniqueExtraRelays];
-    log(
-      `Added ${uniqueExtraRelays.length} extra relays: ${uniqueExtraRelays.join(", ")}`,
-    );
   }
 
   return searchRelays;
@@ -139,17 +130,15 @@ function buildSearchFilter(filters: SearchFilters): Filter {
   const nostrFilter: Filter & { search?: string } = {
     kinds: [1337], // Code snippet kind from NIP-C0
     search: filters.query, // NIP-50 search field
-    limit: filters.limit || 10,
+    // Don't set limit in nostr filter. we want more data from the relay and then filter it down
+    // limit: filters.limit || 10,
   };
 
   // Add optional filters
-  if (filters.language) {
-    nostrFilter["#l"] = [filters.language];
-  }
+  if (filters.language) nostrFilter["#l"] = [filters.language];
 
-  if (filters.tags && filters.tags.length > 0) {
+  if (filters.tags && filters.tags.length > 0)
     nostrFilter["#t"] = filters.tags.map((tag) => tag.toLowerCase());
-  }
 
   if (filters.author) {
     // Support both hex pubkey and npub format
@@ -172,10 +161,11 @@ function buildSearchFilter(filters: SearchFilters): Filter {
 }
 
 /**
- * Search for code snippets using NIP-50
+ * Search for code snippets using NIP-50 and fallback search
  */
 export async function searchCodeSnippets(
   filters: SearchFilters,
+  extraRelays?: string[],
 ): Promise<SearchResult> {
   // Normalize input
   if (filters.author) filters.author = normalizeToPubkey(filters.author);
@@ -187,46 +177,83 @@ export async function searchCodeSnippets(
 
   try {
     // Get search relays
-    const searchRelays = await getSearchRelays(filters.extraRelays);
+    const searchRelays = await getSearchRelays();
+    const readRelays = await getReadRelays();
 
-    if (searchRelays.length === 0)
-      throw new Error("No search relays available");
+    const relays = mergeRelaySets(searchRelays, readRelays, extraRelays);
+
+    if (relays.length === 0) throw new Error("No search relays available");
 
     // Filter relays that support NIP-50
-    const nip50SupportedRelays = await filterNIP50SupportedRelays(searchRelays);
-
-    if (nip50SupportedRelays.length === 0) {
-      log("⚠️  No relays support NIP-50, falling back to basic search");
-      // Fallback to basic search without NIP-50
-      return await fallbackSearch(filters, searchRelays);
-    }
-
-    log(
-      `   Searching ${nip50SupportedRelays.length} NIP-50 relays: ${nip50SupportedRelays.join(", ")}`,
+    const nip50SupportedRelays = await filterNIP50SupportedRelays(relays);
+    const nonNip50Relays = relays.filter(
+      (relay) => !nip50SupportedRelays.includes(relay),
     );
 
-    // Build search filter
-    const searchFilter = buildSearchFilter(filters);
-    log(`   Filter: ${JSON.stringify(searchFilter)}`);
+    log(
+      `   NIP-50 relays: ${nip50SupportedRelays.length}, Fallback relays: ${nonNip50Relays.length}`,
+    );
 
-    // Execute search
-    const events = await lastValueFrom(
-      pool.request(nip50SupportedRelays, searchFilter).pipe(
-        // Deduplicate events
-        mapEventsToStore(eventStore),
-        // Map to timeline
-        mapEventsToTimeline(),
-        // Timeout after 15 seconds for search
-        simpleTimeout(15_000),
-      ),
-    ).catch(() => []);
+    // Execute searches in parallel
+    const searchPromises: Promise<NostrEvent[]>[] = [];
 
-    log(`   Found ${events.length} snippets`);
+    // Search NIP-50 supporting relays if any
+    if (nip50SupportedRelays.length > 0) {
+      log(
+        `   Searching ${nip50SupportedRelays.length} NIP-50 relays: ${nip50SupportedRelays.join(", ")}`,
+      );
+
+      const searchFilter = buildSearchFilter(filters);
+      log(`   NIP-50 filter: ${JSON.stringify(searchFilter)}`);
+
+      const nip50Promise = lastValueFrom(
+        pool.request(nip50SupportedRelays, searchFilter).pipe(
+          // Deduplicate events
+          mapEventsToStore(eventStore),
+          // Map to timeline
+          mapEventsToTimeline(),
+          // Timeout after 15 seconds for search
+          simpleTimeout(15_000),
+          // Start with an empty array if no events are found
+          startWith([]),
+        ),
+      );
+      searchPromises.push(nip50Promise);
+    }
+
+    // Search non-NIP-50 relays with fallback method if any
+    if (nonNip50Relays.length > 0) {
+      log(
+        `   Searching ${nonNip50Relays.length} non-NIP-50 relays with fallback: ${nonNip50Relays.join(", ")}`,
+      );
+
+      const fallbackPromise = fallbackSearchEvents(filters, nonNip50Relays);
+      searchPromises.push(fallbackPromise);
+    }
+
+    // Wait for all searches to complete
+    const searchResults = await Promise.all(searchPromises);
+
+    // Combine and deduplicate results
+    const allEvents = searchResults.flat();
+    const uniqueEvents = Array.from(
+      new Map(allEvents.map((event) => [event.id, event])).values(),
+    );
+
+    // Sort by created_at (newest first)
+    uniqueEvents.sort((a, b) => b.created_at - a.created_at);
+
+    // Apply final limit
+    const finalEvents = filters.limit
+      ? uniqueEvents.slice(0, filters.limit)
+      : uniqueEvents;
+
+    log(`   Combined results: ${finalEvents.length} snippets`);
 
     return {
-      events,
-      total: events.length,
-      searchedRelays: nip50SupportedRelays,
+      events: finalEvents,
+      total: finalEvents.length,
+      searchedRelays: searchRelays,
       nip50SupportedRelays,
     };
   } catch (error) {
@@ -236,64 +263,51 @@ export async function searchCodeSnippets(
 }
 
 /**
- * Fallback search without NIP-50 (basic text matching)
+ * Execute fallback search and return events only (for use in parallel searches)
  */
-async function fallbackSearch(
+async function fallbackSearchEvents(
   filters: SearchFilters,
   relays: string[],
-): Promise<SearchResult> {
-  log("🔄 Using fallback search without NIP-50");
+): Promise<NostrEvent[]> {
+  log("🔄 Using fallback search for non-NIP-50 relays");
 
   // Build basic filter without search field
   const basicFilter: Filter = {
     kinds: [1337],
-    limit: Math.max(filters.limit || 10, 50), // Get more results for local filtering
   };
 
   // Add optional filters
-  if (filters.language) {
-    basicFilter["#l"] = [filters.language];
-  }
+  if (filters.language) basicFilter["#l"] = [filters.language];
 
-  if (filters.tags && filters.tags.length > 0) {
+  if (filters.tags && filters.tags.length > 0)
     basicFilter["#t"] = filters.tags.map((tag) => tag.toLowerCase());
-  }
 
   if (filters.author) {
-    let authorPubkey = filters.author;
-    if (filters.author.startsWith("npub1")) {
-      try {
-        const { nip19 } = require("nostr-tools");
-        const decoded = nip19.decode(filters.author);
-        if (decoded.type === "npub") {
-          authorPubkey = decoded.data;
-        }
-      } catch (error) {
-        log(`Failed to decode npub: ${error}`);
-      }
-    }
+    let authorPubkey = normalizeToPubkey(filters.author);
     basicFilter.authors = [authorPubkey];
   }
 
-  log(`   Basic filter: ${JSON.stringify(basicFilter)}`);
+  log(`   Fallback filter: ${JSON.stringify(basicFilter)}`);
 
   // Execute basic search
   const events = await lastValueFrom(
-    pool
-      .request(relays, basicFilter)
-      .pipe(
-        mapEventsToStore(eventStore),
-        mapEventsToTimeline(),
-        simpleTimeout(15_000),
-      ),
+    pool.request(relays, basicFilter).pipe(
+      // Deduplicate events
+      mapEventsToStore(eventStore),
+      // Map to timeline
+      mapEventsToTimeline(),
+      // Timeout after 15 seconds for search
+      simpleTimeout(15_000),
+      // Start with an empty array if no events are found
+      startWith([]),
+    ),
   );
 
   // Client-side filtering by search query
   const query = filters.query.toLowerCase();
   const filteredEvents = events.filter((event) => {
     const content = event.content.toLowerCase();
-    const title =
-      event.tags.find((tag) => tag[0] === "title")?.[1]?.toLowerCase() || "";
+    const title = getTagValue(event, "title")?.toLowerCase() || "";
     const tags = event.tags
       .filter((tag) => tag[0] === "t")
       .map((tag) => tag[1]?.toLowerCase() || "");
@@ -305,10 +319,23 @@ async function fallbackSearch(
     );
   });
 
-  // Limit results
-  const limitedEvents = filteredEvents.slice(0, filters.limit || 10);
+  log(`   Fallback search found ${filteredEvents.length} snippets`);
+  return filteredEvents;
+}
 
-  log(`   Fallback search found ${limitedEvents.length} snippets`);
+/**
+ * Fallback search without NIP-50 (basic text matching) - legacy function for backward compatibility
+ */
+async function fallbackSearch(
+  filters: SearchFilters,
+  relays: string[],
+): Promise<SearchResult> {
+  log("🔄 Using legacy fallback search without NIP-50");
+
+  const events = await fallbackSearchEvents(filters, relays);
+
+  // Limit results
+  const limitedEvents = events.slice(0, filters.limit || 10);
 
   return {
     events: limitedEvents,
