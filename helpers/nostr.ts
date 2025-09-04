@@ -1,12 +1,12 @@
 import { EventStore } from "applesauce-core";
+import { mergeRelaySets } from "applesauce-core/helpers";
 import {
   createAddressLoader,
   createEventLoader,
 } from "applesauce-loaders/loaders";
-import { Relay, RelayPool } from "applesauce-relay";
+import { RelayPool } from "applesauce-relay";
 import { loadConfig } from "./config";
-import { mergeRelaySets } from "applesauce-core/helpers";
-import { getUserMailboxes } from "./user";
+import { getPublicKey, getUserMailboxes } from "./user";
 
 export const eventStore = new EventStore();
 export const pool = new RelayPool({
@@ -31,7 +31,7 @@ eventStore.eventLoader = eventLoader;
 /** Get the list of relays to read from */
 export async function getReadRelays() {
   const config = loadConfig();
-  const user = config.pubkey;
+  const user = await getPublicKey();
   if (!user) return config.relays;
 
   const outboxes = await getUserMailboxes(user)
@@ -44,7 +44,7 @@ export async function getReadRelays() {
 /** Get the list of relays to write to */
 export async function getWriteRelays() {
   const config = loadConfig();
-  const user = config.pubkey;
+  const user = await getPublicKey();
   if (!user) return config.relays;
 
   const outboxes = await getUserMailboxes(user)

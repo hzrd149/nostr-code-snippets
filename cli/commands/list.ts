@@ -1,10 +1,11 @@
+import { mapEventsToStore, mapEventsToTimeline } from "applesauce-core";
 import { Command } from "commander";
-import { SimplePool, type NostrEvent } from "nostr-tools";
+import { type NostrEvent } from "nostr-tools";
 import { neventEncode } from "nostr-tools/nip19";
+import { filter, identity, lastValueFrom, take } from "rxjs";
 import { loadConfig } from "../../helpers/config.js";
 import { logger } from "../../helpers/debug.js";
-import { getReadRelays } from "../../helpers/nostr.js";
-import { getSigner } from "../../helpers/signer.js";
+import { eventStore, getReadRelays, pool } from "../../helpers/nostr.js";
 import {
   getSnippetCreatedAt,
   getSnippetLanguage,
@@ -13,8 +14,9 @@ import {
   snippetMatchesLanguage,
   snippetMatchesTag,
 } from "../../helpers/snippet.js";
+import { getPublicKey } from "../../helpers/user.js";
 import type { BaseCommand } from "../types.js";
-import { formatSnippetForDisplay, createClickableLink } from "../utils.js";
+import { createClickableLink, formatSnippetForDisplay } from "../utils.js";
 
 export class ListCommand implements BaseCommand {
   name = "list";
@@ -48,7 +50,7 @@ export class ListCommand implements BaseCommand {
       const config = loadConfig();
       const limit = parseInt(options.limit);
 
-      const events = await this.fetchUserSnippets(config, {
+      const events = await this.fetchUserSnippets({
         limit,
         language: options.language,
         tag: options.tag,
@@ -88,27 +90,23 @@ export class ListCommand implements BaseCommand {
     }
   }
 
-  private async fetchUserSnippets(
-    config: any,
-    filters: any,
-  ): Promise<NostrEvent[]> {
+  private async fetchUserSnippets(filters: {
+    limit: number;
+    language: string;
+    tag: string;
+  }): Promise<NostrEvent[]> {
     logger("🔍 Searching your snippets...");
     if (filters.language) logger(`   Language: ${filters.language}`);
     if (filters.tag) logger(`   Tag: ${filters.tag}`);
 
     try {
-      // Get user's public key
-      let userPubkey = config.pubkey;
+      // Get user's public key using the centralized method
+      const userPubkey = await getPublicKey();
 
       if (!userPubkey) {
-        try {
-          const signer = await getSigner();
-          userPubkey = await signer.getPublicKey();
-        } catch (error) {
-          throw new Error(
-            "No pubkey found in config and no signer available. Please run 'nostr-code-snippets signer --connect' first.",
-          );
-        }
+        throw new Error(
+          "No pubkey found in config and no signer available. Please run 'nostr-code-snippets signer --connect' first.",
+        );
       }
 
       logger(`   Searching for snippets from pubkey: ${userPubkey}`);
@@ -119,11 +117,8 @@ export class ListCommand implements BaseCommand {
         `   Reading from ${readRelays.length} relays: ${readRelays.join(", ")}`,
       );
 
-      // Create a simple pool for querying
-      const simplePool = new SimplePool();
-
       // Query for kind 1337 events from the user
-      const filter = {
+      const nostrFilter = {
         kinds: [1337], // Code snippet kind from NIP-C0
         authors: [userPubkey],
         limit: filters.limit * 2, // Get more to account for filtering
@@ -132,36 +127,34 @@ export class ListCommand implements BaseCommand {
       logger(`   Querying with filter: ${JSON.stringify(filter)}`);
 
       // Get events from relays
-      const events = await simplePool.querySync(readRelays, filter);
+      const events = (
+        await lastValueFrom(
+          pool.request(readRelays, nostrFilter).pipe(
+            // Deduplicate events
+            mapEventsToStore(eventStore),
+            // Apply filters
+            filter((event) => {
+              if (
+                filters.language &&
+                !snippetMatchesLanguage(event, filters.language)
+              )
+                return false;
 
-      logger(`   Found ${events.length} raw events`);
+              if (filters.tag && !snippetMatchesTag(event, filters.tag))
+                return false;
 
-      // Close the pool to clean up connections
-      simplePool.close(readRelays);
+              return true;
+            }),
+            // Only take the limit number of events
+            filters.limit ? take(filters.limit) : identity,
+            // Map to timeline
+            mapEventsToTimeline(),
+          ),
+        )
+      ).slice(0, filters.limit);
 
-      // Filter and sort events
-      const filteredEvents = events
-        .filter((event) => {
-          // Apply filters
-          if (
-            filters.language &&
-            !snippetMatchesLanguage(event, filters.language)
-          ) {
-            return false;
-          }
-          if (filters.tag && !snippetMatchesTag(event, filters.tag)) {
-            return false;
-          }
-          return true;
-        })
-        .sort(
-          (a, b) =>
-            getSnippetCreatedAt(b).getTime() - getSnippetCreatedAt(a).getTime(),
-        ) // Sort by newest first
-        .slice(0, filters.limit);
-
-      logger(`   Filtered to ${filteredEvents.length} matching snippets`);
-      return filteredEvents;
+      logger(`   Found ${events.length} snippets`);
+      return events;
     } catch (error) {
       logger(`   Error fetching snippets: ${error}`);
       throw error;

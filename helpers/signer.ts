@@ -59,25 +59,17 @@ async function createSignerFromValue(signerValue: string): Promise<ISigner> {
 }
 
 /**
- * Sets the signer in the system keyring and automatically derives and sets the pubkey in config
+ * Sets the signer in the system keyring
  */
 export async function setSignerInKeyring(signerValue: string): Promise<void> {
   try {
-    // Create a signer instance to get the public key
+    // Create a signer instance to validate it works
     const signer = await createSignerFromValue(signerValue);
-
-    // Get the public key from the signer
-    const pubkey = await signer.getPublicKey();
 
     // Store the signer in the system keyring using the config file path as username
     const configPath = getConfigPath();
     log(`Setting signer in keyring for config file: ${configPath}`);
     await setPassword("nostr-code-snippets", configPath, signerValue);
-
-    // Load current config, update only pubkey (not signer), then save
-    const config = loadConfig();
-    config.pubkey = pubkey;
-    saveConfig(config);
 
     // Set the signer instance
     signerInstance = signer;
@@ -85,9 +77,7 @@ export async function setSignerInKeyring(signerValue: string): Promise<void> {
     // If the signer is a NostrConnectSigner, close it (so cli closes cleanly)
     if (signer instanceof NostrConnectSigner) await signer.close();
 
-    log(
-      `Signer stored in keyring and pubkey updated in config. Pubkey: ${pubkey}`,
-    );
+    log(`Signer stored in keyring successfully`);
   } catch (error) {
     throw new Error(
       `Failed to set signer: ${error instanceof Error ? error.message : error}`,
@@ -114,7 +104,6 @@ export function clearSignerInstance(): void {
 async function createSignerInstance(): Promise<ISigner> {
   // Check environment variable first, then keyring
   const signerValue = process.env.SIGNER || (await getKeyringSigner());
-
   if (!signerValue) throw new Error("No signer configured.");
 
   log(

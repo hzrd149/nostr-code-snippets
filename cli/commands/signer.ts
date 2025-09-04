@@ -14,6 +14,7 @@ import {
   setSignerInstance,
   clearSignerFromKeyring,
 } from "../../helpers/signer.js";
+import { getPublicKey } from "../../helpers/user.js";
 import type { BaseCommand } from "../types.js";
 
 const log = logger.extend("signer");
@@ -48,29 +49,22 @@ export class SignerCommand implements BaseCommand {
 
   async executeStatus(): Promise<void> {
     try {
-      let pubkey: string | undefined;
-      let source: string;
       let signerConnected = false;
 
-      // Try to get pubkey from signer first, fallback to config
+      // Check if signer is connected
       try {
-        const signer = await getSigner();
-        pubkey = await signer.getPublicKey();
-        source = "active signer";
+        await getSigner();
         signerConnected = true;
-        log("Got pubkey from active signer");
+        log("Signer is connected");
       } catch (signerError) {
         log(
-          `Failed to get signer: ${signerError instanceof Error ? signerError.message : signerError}`,
+          `Signer not connected: ${signerError instanceof Error ? signerError.message : signerError}`,
         );
-
-        // Fallback to config
-        const config = loadConfig();
-        pubkey = config.pubkey;
-        source = "config (signer not connected)";
         signerConnected = false;
-        log("Fallback to config pubkey");
       }
+
+      // Get pubkey using the new centralized method
+      const pubkey = await getPublicKey();
 
       if (!pubkey) {
         console.log("❌ No signer identity configured");
@@ -432,10 +426,11 @@ export class SignerCommand implements BaseCommand {
   private async showSigninSuccess(): Promise<void> {
     try {
       const config = loadConfig();
+      const pubkey = await getPublicKey();
 
       console.log("\n🎉 Signer Connection Complete!");
       console.log("─".repeat(30));
-      console.log(`🆔 Public Key: ${config.pubkey}`);
+      console.log(`🆔 Public Key: ${pubkey || "Unable to retrieve"}`);
       console.log(`🔑 Signer: ***stored in system keyring***`);
       console.log(`📡 Relays: ${config.relays.length} configured`);
       console.log(
