@@ -11,7 +11,7 @@
     "start": "bun run index.ts",
     "mcp": "bun run index.ts mcp",
     "dev": "mcp-inspector bun run index.ts mcp",
-    "build": "bun build index.ts --outdir ./dist --target bun",
+    "build": "bun build index.ts --compile --outfile nostr-code-snippets",
     "goose": "goose session --with-extension 'bun run . mcp'"
   },
   "devDependencies": {
