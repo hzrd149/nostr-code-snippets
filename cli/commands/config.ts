@@ -24,14 +24,56 @@ export class ConfigCommand implements BaseCommand {
     program
       .command(this.name)
       .description(this.description)
-      .action(async () => {
-        await this.execute();
+      .option(
+        "--pubkey <pubkey>",
+        "Set public key (npub, hex, or NIP-05 address)",
+      )
+      .option("--editor <editor>", "Set editor command")
+      .option("--add-relay <url>", "Add a relay URL")
+      .option("--remove-relay <url>", "Remove a relay URL")
+      .option("--reset", "Reset configuration to defaults")
+      .option("--show", "Show current configuration")
+      .action(async (options) => {
+        await this.execute(options);
       });
   }
 
-  async execute(): Promise<void> {
+  async execute(options?: any): Promise<void> {
     try {
-      await this.interactiveConfig();
+      // If no options provided, use interactive mode
+      if (!options || Object.keys(options).length === 0) {
+        await this.interactiveConfig();
+        return;
+      }
+
+      // Handle command line options
+      if (options.show) {
+        const config = loadConfig();
+        this.showConfig(config);
+        return;
+      }
+
+      if (options.reset) {
+        await this.resetConfig();
+        return;
+      }
+
+      if (options.pubkey) await this.setPubkeyFromCli(options.pubkey);
+      if (options.editor) await this.setEditorFromCli(options.editor);
+      if (options.addRelay) await this.addRelayFromCli(options.addRelay);
+      if (options.removeRelay)
+        await this.removeRelayFromCli(options.removeRelay);
+
+      // If no specific action was taken, show config
+      if (
+        !options.pubkey &&
+        !options.editor &&
+        !options.addRelay &&
+        !options.removeRelay
+      ) {
+        const config = loadConfig();
+        this.showConfig(config);
+      }
     } catch (error) {
       console.error(
         "❌ Configuration failed:",
@@ -57,9 +99,17 @@ export class ConfigCommand implements BaseCommand {
 
     console.log("\n💡 Tips:");
     console.log(
-      "   • Set a signer: nostr-code-snippets config --signer <nsec_or_nbunksec>",
+      "   • Set pubkey: nostr-code-snippets config --pubkey <npub_or_hex>",
     );
-    console.log("   • Add more relays for better discovery");
+    console.log(
+      "   • Set editor: nostr-code-snippets config --editor 'code --wait'",
+    );
+    console.log(
+      "   • Add relay: nostr-code-snippets config --add-relay wss://relay.damus.io",
+    );
+    console.log(
+      "   • Set signer: nostr-code-snippets signer --connect <nsec_or_nbunksec>",
+    );
     console.log("   • Signer is securely stored in your system's keyring");
   }
 
@@ -420,5 +470,94 @@ export class ConfigCommand implements BaseCommand {
     } catch {
       return false;
     }
+  }
+
+  private async setPubkeyFromCli(pubkeyInput: string): Promise<void> {
+    const trimmed = pubkeyInput.trim();
+    let hexPubkey: string;
+
+    try {
+      if (isNip05Address(trimmed)) {
+        console.log("🔍 Resolving NIP-05 address...");
+        const resolvedPubkey = await resolveNip05(trimmed);
+
+        if (!resolvedPubkey) {
+          console.error(
+            "❌ Failed to resolve NIP-05 address. Please check the address and try again.",
+          );
+          process.exit(1);
+        }
+
+        hexPubkey = resolvedPubkey;
+        console.log(`✅ Resolved NIP-05 address: ${trimmed}`);
+      } else {
+        // Use applesauce helper for npub/hex normalization
+        hexPubkey = Helpers.normalizeToPubkey(trimmed);
+      }
+
+      const config = loadConfig();
+      config.pubkey = hexPubkey;
+      saveConfig(config);
+      console.log("✅ Public key updated successfully!");
+
+      // Show both hex and npub versions
+      console.log(`   Hex: ${hexPubkey}`);
+      try {
+        const npub = nip19.npubEncode(hexPubkey);
+        console.log(`   npub: ${npub}`);
+      } catch {
+        // Ignore encoding errors
+      }
+    } catch (error) {
+      console.error(
+        "❌ Failed to process public key:",
+        error instanceof Error ? error.message : error,
+      );
+      process.exit(1);
+    }
+  }
+
+  private async setEditorFromCli(editorCommand: string): Promise<void> {
+    const config = loadConfig();
+    config.editor = editorCommand.trim();
+    saveConfig(config);
+    console.log(`✅ Editor set to: ${editorCommand.trim()}`);
+  }
+
+  private async addRelayFromCli(relayUrl: string): Promise<void> {
+    const trimmed = relayUrl.trim();
+
+    if (!this.validateRelayUrl(trimmed)) {
+      console.error(
+        "❌ Invalid relay URL format. Must start with ws:// or wss://",
+      );
+      process.exit(1);
+    }
+
+    const config = loadConfig();
+
+    if (config.relays.includes(trimmed)) {
+      console.log(`⚠️  Relay already exists: ${trimmed}`);
+      return;
+    }
+
+    config.relays.push(trimmed);
+    saveConfig(config);
+    console.log(`✅ Added relay: ${trimmed}`);
+  }
+
+  private async removeRelayFromCli(relayUrl: string): Promise<void> {
+    const trimmed = relayUrl.trim();
+    const config = loadConfig();
+
+    const index = config.relays.indexOf(trimmed);
+    if (index === -1) {
+      console.error(`❌ Relay not found: ${trimmed}`);
+      process.exit(1);
+    }
+
+    config.relays.splice(index, 1);
+    saveConfig(config);
+    console.log(`✅ Removed relay: ${trimmed}`);
   }
 }

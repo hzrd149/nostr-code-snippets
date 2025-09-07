@@ -54,6 +54,7 @@ export function createCliProgram(): Command {
       '  $ nostr-code-snippets search "react hooks" --language javascript',
     );
     console.log("  $ nostr-code-snippets list --format table --limit 5");
+    console.log("  $ nostr-code-snippets config --pubkey npub1...");
     console.log(
       "  $ nostr-code-snippets config --add-relay wss://relay.nostr.band",
     );
