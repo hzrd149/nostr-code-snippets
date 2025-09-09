@@ -12,6 +12,11 @@ import { firstValueFrom } from "rxjs";
 import { loadConfig, readCodeFile } from "../../helpers/config.js";
 import { DEFAULT_SEARCH_RELAYS } from "../../helpers/const.js";
 import { logger } from "../../helpers/debug.js";
+import {
+  getAllLanguages,
+  getFileExtension,
+  normalizeLanguage,
+} from "../../helpers/languages.js";
 import { eventStore, getWriteRelays, pool } from "../../helpers/nostr.js";
 import { getSigner } from "../../helpers/signer.js";
 import {
@@ -19,14 +24,19 @@ import {
   getSnippetLanguage,
   getSnippetName,
 } from "../../helpers/snippet.js";
-import {
-  getFileExtension,
-  normalizeLanguage,
-  getAllLanguages,
-  getLanguageDisplayName,
-} from "../../helpers/languages.js";
 import { getPublicKey, getUserSearchRelays } from "../../helpers/user.js";
 import type { BaseCommand } from "../types.js";
+
+interface SnippetData {
+  content: string;
+  language?: string;
+  title: string;
+  description?: string;
+  tags: string[];
+  dependencies: string[];
+  license?: string;
+  repo?: string;
+}
 
 export class CreateCommand implements BaseCommand {
   name = "create";
@@ -69,39 +79,17 @@ export class CreateCommand implements BaseCommand {
         suggestedName,
       );
 
-      // Step 3: Collect metadata from user
-      const metadata = await this.collectSnippetMetadata(
-        editedContent,
-        finalLanguage,
-        suggestedName,
-      );
-
-      // Step 4: Prepare and publish snippet
-      const snippetData = {
+      // Step 3: Interactive snippet configuration
+      await this.interactiveSnippetConfig({
         content: editedContent,
-        language: metadata.language,
-        title: metadata.title,
-        description: metadata.description,
-        tags: metadata.tags,
-        dependencies: metadata.dependencies,
-        license: metadata.license,
-        repo: metadata.repo,
-      };
-
-      console.log(`\n📊 Snippet Details:`);
-      console.log(`   Title: ${snippetData.title}`);
-      console.log(`   Language: ${snippetData.language || "Unknown"}`);
-      console.log(`   Description: ${snippetData.description || "None"}`);
-      console.log(`   Tags: ${snippetData.tags.join(", ")}`);
-      console.log(`   Size: ${editedContent.length} characters`);
-
-      const config = loadConfig();
-      await this.publishToNostr(snippetData, config);
-
-      console.log("\n✅ Code snippet created and published successfully!");
-      console.log(
-        "🔗 You can now search for it using: nostr-code-snippets search",
-      );
+        language: finalLanguage,
+        title: suggestedName || "Untitled Snippet",
+        description: "",
+        tags: [],
+        dependencies: [],
+        license: "",
+        repo: "",
+      });
     } catch (error) {
       console.error(
         "❌ Failed to create snippet:",
@@ -277,154 +265,655 @@ export class CreateCommand implements BaseCommand {
   }
 
   /**
-   * Collect snippet metadata from user
+   * Interactive snippet configuration with menu-driven interface
    */
-  private async collectSnippetMetadata(
-    content: string,
-    detectedLanguage?: string,
-    suggestedName?: string,
-  ): Promise<{
-    title: string;
-    description?: string;
-    language?: string;
-    tags: string[];
-    dependencies: string[];
-    license?: string;
-    repo?: string;
-  }> {
-    console.log("\n📝 Please provide details for your code snippet:");
+  private async interactiveSnippetConfig(
+    initialData: SnippetData,
+  ): Promise<void> {
+    console.log("\n🔧 Interactive Snippet Configuration");
+    console.log("─".repeat(50));
 
-    const titleAnswer = await inquirer.prompt([
+    let snippetData = { ...initialData };
+
+    while (true) {
+      this.showSnippetPreview(snippetData);
+      console.log("\n");
+
+      const { action } = await inquirer.prompt([
+        {
+          type: "list",
+          name: "action",
+          message: "What would you like to configure?",
+          choices: [
+            { name: "📝 Title", value: "title" },
+            { name: "📄 Description", value: "description" },
+            { name: "🔤 Programming Language", value: "language" },
+            { name: "🏷️  Tags", value: "tags" },
+            { name: "📦 Dependencies", value: "dependencies" },
+            { name: "⚖️  License", value: "license" },
+            { name: "🔗 Repository URL", value: "repo" },
+            { name: "✏️  Edit Code Content", value: "edit_content" },
+            { name: "👁️  Preview Snippet", value: "preview" },
+            { name: "🚀 Publish to Nostr", value: "publish" },
+            { name: "❌ Cancel", value: "cancel" },
+          ],
+        },
+      ]);
+
+      if (action === "cancel") {
+        console.log("🚫 Snippet creation cancelled.");
+        process.exit(0);
+      }
+
+      if (action === "publish") {
+        await this.confirmAndPublish(snippetData);
+        break;
+      }
+
+      switch (action) {
+        case "title":
+          await this.configureTitle(snippetData);
+          break;
+        case "description":
+          await this.configureDescription(snippetData);
+          break;
+        case "language":
+          await this.configureLanguage(snippetData);
+          break;
+        case "tags":
+          await this.configureTags(snippetData);
+          break;
+        case "dependencies":
+          await this.configureDependencies(snippetData);
+          break;
+        case "license":
+          await this.configureLicense(snippetData);
+          break;
+        case "repo":
+          await this.configureRepo(snippetData);
+          break;
+        case "edit_content":
+          await this.editContent(snippetData);
+          break;
+        case "preview":
+          await this.showDetailedPreview(snippetData);
+          break;
+      }
+    }
+  }
+
+  /**
+   * Show a compact preview of the current snippet configuration
+   */
+  private showSnippetPreview(snippetData: SnippetData): void {
+    console.log("\n📊 Current Snippet Configuration:");
+    console.log("─".repeat(40));
+    console.log(`📝 Title: ${snippetData.title}`);
+    console.log(`🔤 Language: ${snippetData.language || "Not set"}`);
+    console.log(`📄 Description: ${snippetData.description || "Not set"}`);
+    console.log(
+      `🏷️  Tags: ${snippetData.tags.length > 0 ? snippetData.tags.join(", ") : "None"}`,
+    );
+    console.log(
+      `📦 Dependencies: ${snippetData.dependencies.length > 0 ? snippetData.dependencies.join(", ") : "None"}`,
+    );
+    console.log(`⚖️  License: ${snippetData.license || "Not set"}`);
+    console.log(`🔗 Repository: ${snippetData.repo || "Not set"}`);
+    console.log(`📏 Content Size: ${snippetData.content.length} characters`);
+  }
+
+  /**
+   * Show detailed preview including content sample
+   */
+  private async showDetailedPreview(snippetData: SnippetData): Promise<void> {
+    console.log("\n📋 Detailed Snippet Preview:");
+    console.log("═".repeat(60));
+    console.log(`📝 Title: ${snippetData.title}`);
+    console.log(`🔤 Language: ${snippetData.language || "Unknown"}`);
+    console.log(`📄 Description: ${snippetData.description || "None"}`);
+    console.log(
+      `🏷️  Tags: ${snippetData.tags.length > 0 ? snippetData.tags.join(", ") : "None"}`,
+    );
+    console.log(
+      `📦 Dependencies: ${snippetData.dependencies.length > 0 ? snippetData.dependencies.join(", ") : "None"}`,
+    );
+    console.log(`⚖️  License: ${snippetData.license || "None"}`);
+    console.log(`🔗 Repository: ${snippetData.repo || "None"}`);
+    console.log(`📏 Content Size: ${snippetData.content.length} characters`);
+
+    console.log("\n📄 Content Preview (first 10 lines):");
+    console.log("─".repeat(40));
+    const lines = snippetData.content.split("\n");
+    const previewLines = lines.slice(0, 10);
+    previewLines.forEach((line, index) => {
+      console.log(`${String(index + 1).padStart(3, " ")}| ${line}`);
+    });
+    if (lines.length > 10) {
+      console.log(`... (${lines.length - 10} more lines)`);
+    }
+    console.log("─".repeat(40));
+
+    // Wait for user to continue
+    await inquirer.prompt([
+      {
+        type: "input",
+        name: "continue",
+        message: "Press Enter to continue...",
+      },
+    ]);
+  }
+
+  /**
+   * Configure snippet title
+   */
+  private async configureTitle(snippetData: SnippetData): Promise<void> {
+    console.log("\n📝 Configure Title");
+    console.log("─".repeat(30));
+    console.log(`Current: ${snippetData.title}`);
+
+    const { title } = await inquirer.prompt([
       {
         type: "input",
         name: "title",
-        message: "Title for the snippet:",
-        default: suggestedName || "Untitled Snippet",
+        message: "Enter snippet title:",
+        default: snippetData.title,
         validate: (input: string) =>
           input.trim().length > 0 || "Title is required",
       },
     ]);
 
-    const descriptionAnswer = await inquirer.prompt([
+    snippetData.title = title.trim();
+    console.log(`✅ Title updated: ${snippetData.title}`);
+  }
+
+  /**
+   * Configure snippet description
+   */
+  private async configureDescription(snippetData: SnippetData): Promise<void> {
+    console.log("\n📄 Configure Description");
+    console.log("─".repeat(30));
+    console.log(`Current: ${snippetData.description || "Not set"}`);
+
+    const { description } = await inquirer.prompt([
       {
         type: "input",
         name: "description",
-        message: "Description (optional):",
+        message: "Enter description (optional):",
+        default: snippetData.description || "",
       },
     ]);
 
+    snippetData.description = description.trim() || undefined;
+    console.log(`✅ Description updated: ${snippetData.description || "None"}`);
+  }
+
+  /**
+   * Configure programming language
+   */
+  private async configureLanguage(snippetData: SnippetData): Promise<void> {
+    console.log("\n🔤 Configure Programming Language");
+    console.log("─".repeat(30));
+    console.log(`Current: ${snippetData.language || "Not set"}`);
+
     const allLanguages = getAllLanguages();
-    const languageAnswer = await inquirer.prompt([
+    const { language } = await inquirer.prompt([
       {
         type: "list",
         name: "language",
-        message: "Programming language:",
+        message: "Select programming language:",
         choices: [
           ...allLanguages,
           { name: "Other (specify manually)", value: "other" },
+          { name: "Clear language", value: "clear" },
         ],
-        default: detectedLanguage || "text",
+        default: snippetData.language || "text",
       },
     ]);
 
-    let finalLanguage = languageAnswer.language;
-    if (finalLanguage === "other") {
-      const customLanguageAnswer = await inquirer.prompt([
+    if (language === "clear") {
+      snippetData.language = undefined;
+      console.log("✅ Language cleared");
+    } else if (language === "other") {
+      const { customLanguage } = await inquirer.prompt([
         {
           type: "input",
           name: "customLanguage",
           message: "Enter custom language:",
-          default: detectedLanguage || "text",
+          default: snippetData.language || "text",
+          validate: (input: string) =>
+            input.trim().length > 0 || "Language is required",
         },
       ]);
-      finalLanguage = customLanguageAnswer.customLanguage;
+      snippetData.language = customLanguage.trim();
+      console.log(`✅ Language set to: ${snippetData.language}`);
+    } else {
+      snippetData.language = language;
+      console.log(`✅ Language set to: ${snippetData.language}`);
+    }
+  }
+
+  /**
+   * Configure tags
+   */
+  private async configureTags(snippetData: SnippetData): Promise<void> {
+    console.log("\n🏷️  Configure Tags");
+    console.log("─".repeat(30));
+    console.log(
+      `Current: ${snippetData.tags.length > 0 ? snippetData.tags.join(", ") : "None"}`,
+    );
+
+    while (true) {
+      const { tagAction } = await inquirer.prompt([
+        {
+          type: "list",
+          name: "tagAction",
+          message: "What would you like to do with tags?",
+          choices: [
+            { name: "➕ Add a tag", value: "add" },
+            { name: "➖ Remove a tag", value: "remove" },
+            { name: "🔄 Replace all tags", value: "replace" },
+            { name: "🗑️  Clear all tags", value: "clear" },
+            { name: "⬅️  Back", value: "back" },
+          ],
+        },
+      ]);
+
+      if (tagAction === "back") break;
+
+      switch (tagAction) {
+        case "add":
+          await this.addTag(snippetData);
+          break;
+        case "remove":
+          await this.removeTag(snippetData);
+          break;
+        case "replace":
+          await this.replaceTags(snippetData);
+          break;
+        case "clear":
+          snippetData.tags = [];
+          console.log("✅ All tags cleared");
+          break;
+      }
+
+      console.log(
+        `Current tags: ${snippetData.tags.length > 0 ? snippetData.tags.join(", ") : "None"}`,
+      );
+    }
+  }
+
+  private async addTag(snippetData: SnippetData): Promise<void> {
+    const { tag } = await inquirer.prompt([
+      {
+        type: "input",
+        name: "tag",
+        message: "Enter tag to add:",
+        validate: (input: string) =>
+          input.trim().length > 0 || "Tag cannot be empty",
+      },
+    ]);
+
+    const normalizedTag = tag.trim().toLowerCase();
+    if (!snippetData.tags.includes(normalizedTag)) {
+      snippetData.tags.push(normalizedTag);
+      console.log(`✅ Added tag: ${normalizedTag}`);
+    } else {
+      console.log(`⚠️  Tag already exists: ${normalizedTag}`);
+    }
+  }
+
+  private async removeTag(snippetData: SnippetData): Promise<void> {
+    if (snippetData.tags.length === 0) {
+      console.log("⚠️  No tags to remove");
+      return;
     }
 
-    const tagsAnswer = await inquirer.prompt([
+    const { tagToRemove } = await inquirer.prompt([
       {
-        type: "input",
-        name: "tags",
-        message: "Tags (comma-separated, optional):",
+        type: "list",
+        name: "tagToRemove",
+        message: "Select tag to remove:",
+        choices: snippetData.tags.map((tag) => ({ name: tag, value: tag })),
       },
     ]);
 
-    const dependenciesAnswer = await inquirer.prompt([
+    const index = snippetData.tags.indexOf(tagToRemove);
+    if (index > -1) {
+      snippetData.tags.splice(index, 1);
+      console.log(`✅ Removed tag: ${tagToRemove}`);
+    }
+  }
+
+  private async replaceTags(snippetData: SnippetData): Promise<void> {
+    const { tagsInput } = await inquirer.prompt([
       {
         type: "input",
-        name: "dependencies",
-        message: "Dependencies (comma-separated, optional):",
+        name: "tagsInput",
+        message: "Enter tags (comma-separated):",
+        default: snippetData.tags.join(", "),
       },
     ]);
 
-    const licenseAnswer = await inquirer.prompt([
+    const newTags = tagsInput
+      .split(",")
+      .map((tag: string) => tag.trim().toLowerCase())
+      .filter((tag: string) => tag.length > 0);
+
+    snippetData.tags = newTags;
+    console.log(
+      `✅ Tags updated: ${newTags.length > 0 ? newTags.join(", ") : "None"}`,
+    );
+  }
+
+  /**
+   * Configure dependencies
+   */
+  private async configureDependencies(snippetData: SnippetData): Promise<void> {
+    console.log("\n📦 Configure Dependencies");
+    console.log("─".repeat(30));
+    console.log(
+      `Current: ${snippetData.dependencies.length > 0 ? snippetData.dependencies.join(", ") : "None"}`,
+    );
+
+    while (true) {
+      const { depAction } = await inquirer.prompt([
+        {
+          type: "list",
+          name: "depAction",
+          message: "What would you like to do with dependencies?",
+          choices: [
+            { name: "➕ Add a dependency", value: "add" },
+            { name: "➖ Remove a dependency", value: "remove" },
+            { name: "🔄 Replace all dependencies", value: "replace" },
+            { name: "🗑️  Clear all dependencies", value: "clear" },
+            { name: "⬅️  Back", value: "back" },
+          ],
+        },
+      ]);
+
+      if (depAction === "back") break;
+
+      switch (depAction) {
+        case "add":
+          await this.addDependency(snippetData);
+          break;
+        case "remove":
+          await this.removeDependency(snippetData);
+          break;
+        case "replace":
+          await this.replaceDependencies(snippetData);
+          break;
+        case "clear":
+          snippetData.dependencies = [];
+          console.log("✅ All dependencies cleared");
+          break;
+      }
+
+      console.log(
+        `Current dependencies: ${snippetData.dependencies.length > 0 ? snippetData.dependencies.join(", ") : "None"}`,
+      );
+    }
+  }
+
+  private async addDependency(snippetData: SnippetData): Promise<void> {
+    const { dependency } = await inquirer.prompt([
       {
         type: "input",
+        name: "dependency",
+        message: "Enter dependency to add:",
+        validate: (input: string) =>
+          input.trim().length > 0 || "Dependency cannot be empty",
+      },
+    ]);
+
+    const normalizedDep = dependency.trim();
+    if (!snippetData.dependencies.includes(normalizedDep)) {
+      snippetData.dependencies.push(normalizedDep);
+      console.log(`✅ Added dependency: ${normalizedDep}`);
+    } else {
+      console.log(`⚠️  Dependency already exists: ${normalizedDep}`);
+    }
+  }
+
+  private async removeDependency(snippetData: SnippetData): Promise<void> {
+    if (snippetData.dependencies.length === 0) {
+      console.log("⚠️  No dependencies to remove");
+      return;
+    }
+
+    const { depToRemove } = await inquirer.prompt([
+      {
+        type: "list",
+        name: "depToRemove",
+        message: "Select dependency to remove:",
+        choices: snippetData.dependencies.map((dep) => ({
+          name: dep,
+          value: dep,
+        })),
+      },
+    ]);
+
+    const index = snippetData.dependencies.indexOf(depToRemove);
+    if (index > -1) {
+      snippetData.dependencies.splice(index, 1);
+      console.log(`✅ Removed dependency: ${depToRemove}`);
+    }
+  }
+
+  private async replaceDependencies(snippetData: SnippetData): Promise<void> {
+    const { depsInput } = await inquirer.prompt([
+      {
+        type: "input",
+        name: "depsInput",
+        message: "Enter dependencies (comma-separated):",
+        default: snippetData.dependencies.join(", "),
+      },
+    ]);
+
+    const newDeps = depsInput
+      .split(",")
+      .map((dep: string) => dep.trim())
+      .filter((dep: string) => dep.length > 0);
+
+    snippetData.dependencies = newDeps;
+    console.log(
+      `✅ Dependencies updated: ${newDeps.length > 0 ? newDeps.join(", ") : "None"}`,
+    );
+  }
+
+  /**
+   * Configure license
+   */
+  private async configureLicense(snippetData: SnippetData): Promise<void> {
+    console.log("\n⚖️  Configure License");
+    console.log("─".repeat(30));
+    console.log(`Current: ${snippetData.license || "Not set"}`);
+
+    const commonLicenses = [
+      { name: "MIT", value: "MIT" },
+      { name: "Apache-2.0", value: "Apache-2.0" },
+      { name: "GPL-3.0", value: "GPL-3.0" },
+      { name: "BSD-3-Clause", value: "BSD-3-Clause" },
+      { name: "ISC", value: "ISC" },
+      { name: "Unlicense", value: "Unlicense" },
+      { name: "Custom license", value: "custom" },
+      { name: "No license / Clear", value: "clear" },
+    ];
+
+    const { license } = await inquirer.prompt([
+      {
+        type: "list",
         name: "license",
-        message: "License (optional):",
+        message: "Select license:",
+        choices: commonLicenses,
+        default: snippetData.license || "MIT",
       },
     ]);
 
-    const repoAnswer = await inquirer.prompt([
+    if (license === "clear") {
+      snippetData.license = undefined;
+      console.log("✅ License cleared");
+    } else if (license === "custom") {
+      const { customLicense } = await inquirer.prompt([
+        {
+          type: "input",
+          name: "customLicense",
+          message: "Enter custom license:",
+          default: snippetData.license || "",
+          validate: (input: string) =>
+            input.trim().length > 0 || "License cannot be empty",
+        },
+      ]);
+      snippetData.license = customLicense.trim();
+      console.log(`✅ License set to: ${snippetData.license}`);
+    } else {
+      snippetData.license = license;
+      console.log(`✅ License set to: ${snippetData.license}`);
+    }
+  }
+
+  /**
+   * Configure repository URL
+   */
+  private async configureRepo(snippetData: SnippetData): Promise<void> {
+    console.log("\n🔗 Configure Repository URL");
+    console.log("─".repeat(30));
+    console.log(`Current: ${snippetData.repo || "Not set"}`);
+
+    const { repo } = await inquirer.prompt([
       {
         type: "input",
         name: "repo",
-        message: "Repository URL (optional):",
+        message: "Enter repository URL (optional):",
+        default: snippetData.repo || "",
+        validate: (input: string) => {
+          if (!input.trim()) return true; // Empty is OK
+          try {
+            new URL(input.trim());
+            return true;
+          } catch {
+            return "Please enter a valid URL";
+          }
+        },
       },
     ]);
 
-    const confirmAnswer = await inquirer.prompt([
+    snippetData.repo = repo.trim() || undefined;
+    console.log(
+      `✅ Repository URL ${snippetData.repo ? `set to: ${snippetData.repo}` : "cleared"}`,
+    );
+  }
+
+  /**
+   * Edit code content
+   */
+  private async editContent(snippetData: SnippetData): Promise<void> {
+    console.log("\n✏️  Edit Code Content");
+    console.log("─".repeat(30));
+    console.log(`Current size: ${snippetData.content.length} characters`);
+
+    const { editChoice } = await inquirer.prompt([
+      {
+        type: "list",
+        name: "editChoice",
+        message: "How would you like to edit the content?",
+        choices: [
+          { name: "📝 Open in editor", value: "editor" },
+          { name: "📄 View current content", value: "view" },
+          { name: "⬅️  Back", value: "back" },
+        ],
+      },
+    ]);
+
+    if (editChoice === "back") return;
+
+    if (editChoice === "view") {
+      console.log("\n📄 Current Content:");
+      console.log("─".repeat(40));
+      console.log(snippetData.content);
+      console.log("─".repeat(40));
+
+      await inquirer.prompt([
+        {
+          type: "input",
+          name: "continue",
+          message: "Press Enter to continue...",
+        },
+      ]);
+      return;
+    }
+
+    if (editChoice === "editor") {
+      try {
+        const editedContent = await this.openEditorForContent(
+          snippetData.content,
+          snippetData.language,
+          snippetData.title,
+        );
+        snippetData.content = editedContent;
+        console.log(`✅ Content updated (${editedContent.length} characters)`);
+      } catch (error) {
+        console.error(
+          "❌ Failed to edit content:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+  }
+
+  /**
+   * Confirm and publish the snippet
+   */
+  private async confirmAndPublish(snippetData: SnippetData): Promise<void> {
+    console.log("\n🚀 Ready to Publish");
+    console.log("═".repeat(50));
+
+    // Add automatic tags
+    const allTags = new Set<string>([...snippetData.tags]);
+    allTags.add("code");
+    allTags.add("snippet");
+    if (snippetData.language) {
+      allTags.add(snippetData.language.toLowerCase());
+    }
+    const finalTags = Array.from(allTags);
+
+    const finalSnippetData = {
+      ...snippetData,
+      tags: finalTags,
+    };
+
+    // Show final summary
+    await this.showDetailedPreview(finalSnippetData);
+
+    const { confirmed } = await inquirer.prompt([
       {
         type: "confirm",
-        name: "confirm",
-        message: "Publish this snippet to Nostr?",
+        name: "confirmed",
+        message: "🚀 Publish this snippet to Nostr?",
         default: true,
       },
     ]);
 
-    // Combine all answers
-    const answers = {
-      title: titleAnswer.title,
-      description: descriptionAnswer.description,
-      language: finalLanguage,
-      tags: tagsAnswer.tags
-        ? tagsAnswer.tags
-            .split(",")
-            .map((tag: string) => tag.trim().toLowerCase())
-            .filter((tag: string) => tag.length > 0)
-        : [],
-      dependencies: dependenciesAnswer.dependencies
-        ? dependenciesAnswer.dependencies
-            .split(",")
-            .map((dep: string) => dep.trim())
-            .filter((dep: string) => dep.length > 0)
-        : [],
-      license: licenseAnswer.license,
-      repo: repoAnswer.repo,
-      confirm: confirmAnswer.confirm,
-    };
-
-    if (!answers.confirm) {
-      console.log("🚫 Snippet creation cancelled.");
-      process.exit(0);
+    if (!confirmed) {
+      console.log("📝 Continue editing...");
+      return;
     }
 
-    // Add automatic tags
-    const allTags = new Set<string>([...answers.tags]);
-    allTags.add("code");
-    allTags.add("snippet");
-    if (answers.language) {
-      allTags.add(answers.language.toLowerCase());
-    }
+    try {
+      const config = loadConfig();
+      await this.publishToNostr(finalSnippetData, config);
 
-    return {
-      title: answers.title,
-      description: answers.description || undefined,
-      language: answers.language || undefined,
-      tags: Array.from(allTags),
-      dependencies: answers.dependencies,
-      license: answers.license || undefined,
-      repo: answers.repo || undefined,
-    };
+      console.log("\n✅ Code snippet created and published successfully!");
+      console.log(
+        "🔗 You can now search for it using: nostr-code-snippets search",
+      );
+    } catch (error) {
+      console.error(
+        "❌ Failed to publish snippet:",
+        error instanceof Error ? error.message : error,
+      );
+      throw error;
+    }
   }
 
   private async publishToNostr(snippetData: any, config: any): Promise<void> {
