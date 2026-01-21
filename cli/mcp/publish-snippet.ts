@@ -1,21 +1,21 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { mergeRelaySets } from "applesauce-core/helpers";
 import { spawn } from "child_process";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { z } from "zod";
 import { loadConfig } from "../../helpers/config.js";
+import { DEFAULT_SEARCH_RELAYS } from "../../helpers/const.js";
 import { logger } from "../../helpers/debug.js";
-import { mcpError, mcpSuccess } from "../../helpers/mcp.js";
-import { getWriteRelays, pool } from "../../helpers/nostr.js";
-import { getSigner } from "../../helpers/signer.js";
-import { getPublicKey, getUserSearchRelays } from "../../helpers/user.js";
 import {
   getFileExtension,
   normalizeLanguage,
 } from "../../helpers/languages.js";
-import { DEFAULT_SEARCH_RELAYS } from "../../helpers/const.js";
-import { mergeRelaySets } from "applesauce-core/helpers";
+import { mcpError, mcpSuccess } from "../../helpers/mcp.js";
+import { getWriteRelays, pool } from "../../helpers/nostr.js";
+import { getSigner } from "../../helpers/signer.js";
+import { getPublicKey, getUserSearchRelays } from "../../helpers/user.js";
 
 const log = logger.extend("mcp:publish-snippet");
 

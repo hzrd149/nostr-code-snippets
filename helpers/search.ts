@@ -3,19 +3,19 @@ import {
   mapEventsToTimeline,
   simpleTimeout,
 } from "applesauce-core";
-import { nip19, type Filter, type NostrEvent } from "nostr-tools";
-import { endWith, firstValueFrom, lastValueFrom, startWith } from "rxjs";
-import { Index } from "flexsearch";
-import { DEFAULT_SEARCH_RELAYS } from "./const.js";
-import { logger } from "./debug.js";
-import { eventStore, getReadRelays, pool } from "./nostr.js";
-import { getPublicKey, getUserSearchRelays } from "./user.js";
 import {
   getTagValue,
   mergeRelaySets,
   normalizeToPubkey,
 } from "applesauce-core/helpers";
+import { Index } from "flexsearch";
+import { type Filter, type NostrEvent } from "nostr-tools";
+import { endWith, firstValueFrom, lastValueFrom, startWith } from "rxjs";
+import { DEFAULT_SEARCH_RELAYS } from "./const.js";
+import { logger } from "./debug.js";
 import { normalizeLanguage } from "./languages.js";
+import { eventStore, getReadRelays, pool } from "./nostr.js";
+import { getPublicKey, getUserSearchRelays } from "./user.js";
 
 const log = logger.extend("search");
 
@@ -170,7 +170,11 @@ export async function searchCodeSnippets(
   extraRelays?: string[],
 ): Promise<SearchResult> {
   // Normalize input
-  if (filters.author) filters.author = normalizeToPubkey(filters.author);
+  if (filters.author) {
+    const key = normalizeToPubkey(filters.author);
+    if (!key) throw new Error("Invalid author");
+    filters.author = key;
+  }
   if (filters.language)
     filters.language = normalizeLanguage(filters.language) || filters.language;
 
@@ -332,7 +336,9 @@ async function fallbackSearchEvents(
     basicFilter["#t"] = filters.tags.map((tag) => tag.toLowerCase());
 
   if (filters.author) {
-    let authorPubkey = normalizeToPubkey(filters.author);
+    const key = normalizeToPubkey(filters.author);
+    if (!key) throw new Error("Invalid author");
+    const authorPubkey = key;
     basicFilter.authors = [authorPubkey];
   }
 

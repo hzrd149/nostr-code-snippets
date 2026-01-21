@@ -1,9 +1,6 @@
 import { EventStore } from "applesauce-core";
 import { mergeRelaySets } from "applesauce-core/helpers";
-import {
-  createAddressLoader,
-  createEventLoader,
-} from "applesauce-loaders/loaders";
+import { createEventLoaderForStore } from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
 import { NostrConnectSigner } from "applesauce-signers";
 import { loadConfig } from "./config";
@@ -20,20 +17,12 @@ export const pool = new RelayPool({
 
 NostrConnectSigner.pool = pool;
 
-// Create loaders
-export const addressLoader = createAddressLoader(pool, {
-  eventStore,
-  extraRelays: loadConfig().relays,
-});
-export const eventLoader = createEventLoader(pool, {
-  eventStore,
-  extraRelays: loadConfig().relays,
-});
-
 // Attach loaders to event store
-eventStore.addressableLoader = addressLoader;
-eventStore.replaceableLoader = addressLoader;
-eventStore.eventLoader = eventLoader;
+export const eventLoader = createEventLoaderForStore(eventStore, pool, {
+  lookupRelays: loadConfig().relays,
+  extraRelays: loadConfig().relays,
+});
+export const addressLoader = eventLoader;
 
 // Register shutdown handler to clean up relay connections
 registerShutdownHandler("nostr-pool", async () => {

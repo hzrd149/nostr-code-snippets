@@ -1,5 +1,5 @@
 import { defined, simpleTimeout } from "applesauce-core";
-import { getRelaysFromList } from "applesauce-core/helpers";
+import { getRelaysFromList } from "applesauce-common/helpers/lists";
 import { type ISigner } from "applesauce-signers";
 import { kinds } from "nostr-tools";
 import type { ProfilePointer } from "nostr-tools/nip19";

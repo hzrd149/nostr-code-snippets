@@ -224,7 +224,10 @@ export class CreateCommand implements BaseCommand {
       // Get editor from config, environment, or default
       const config = loadConfig();
       const editor =
-        config.editor || process.env.EDITOR || process.env.VISUAL || "open";
+        config.editor ||
+        process.env.EDITOR ||
+        process.env.VISUAL ||
+        "code --wait";
 
       // Open editor and wait for completion
       await new Promise<void>((resolve, reject) => {

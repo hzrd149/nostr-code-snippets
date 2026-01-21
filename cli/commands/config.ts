@@ -1,4 +1,4 @@
-import { Helpers } from "applesauce-core";
+import { normalizeToPubkey } from "applesauce-core/helpers";
 import { Command } from "commander";
 import inquirer from "inquirer";
 import { nip19 } from "nostr-tools";
@@ -90,7 +90,7 @@ export class ConfigCommand implements BaseCommand {
     console.log(`🔑 Signer: ***stored in system keyring***`);
     console.log(`🆔 Public Key: ${config.pubkey ? config.pubkey : "Not set"}`);
     console.log(
-      `📝 Editor: ${config.editor || "Not set (uses $EDITOR, $VISUAL, or vi)"}`,
+      `📝 Editor: ${config.editor || "Not set (uses $EDITOR, $VISUAL, or code --wait)"}`,
     );
     console.log(`📡 Relays (${config.relays.length}):`);
     config.relays.forEach((relay) => {
@@ -200,7 +200,7 @@ export class ConfigCommand implements BaseCommand {
 
           // Try to normalize with applesauce helper (handles more formats)
           try {
-            Helpers.normalizeToPubkey(trimmed);
+            normalizeToPubkey(trimmed);
             return true;
           } catch {
             return "Invalid format. Please provide a valid hex public key, npub, or NIP-05 address (user@domain.com).";
@@ -229,7 +229,7 @@ export class ConfigCommand implements BaseCommand {
           console.log(`✅ Resolved NIP-05 address: ${trimmed}`);
         } else {
           // Use applesauce helper for npub/hex normalization
-          hexPubkey = Helpers.normalizeToPubkey(trimmed);
+          hexPubkey = normalizeToPubkey(trimmed);
         }
 
         config.pubkey = hexPubkey;
@@ -492,7 +492,12 @@ export class ConfigCommand implements BaseCommand {
         console.log(`✅ Resolved NIP-05 address: ${trimmed}`);
       } else {
         // Use applesauce helper for npub/hex normalization
-        hexPubkey = Helpers.normalizeToPubkey(trimmed);
+        const key = normalizeToPubkey(trimmed);
+        if (!key) {
+          console.error("❌ Failed to normalize public key");
+          process.exit(1);
+        }
+        hexPubkey = key;
       }
 
       const config = loadConfig();
